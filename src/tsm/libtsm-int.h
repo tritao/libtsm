@@ -32,11 +32,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "libtsm.h"
+#include "shl-macro.h"
 #include "shl_dlist.h"
 #include "shl-llog.h"
 
 #if defined(_MSC_VER) && !defined(__clang__)
-#define SHL_EXPORT __declspec(dllexport)
+#define SHL_EXPORT
 #else
 #define SHL_EXPORT __attribute__((visibility("default")))
 #endif
