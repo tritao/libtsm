@@ -64,9 +64,33 @@ START_TEST(test_symbol_init)
 }
 END_TEST
 
+START_TEST(test_symbol_combining)
+{
+	struct tsm_symbol_table *table;
+	const uint32_t *codepoints;
+	tsm_symbol_t symbol;
+	size_t length;
+	int r;
+
+	r = tsm_symbol_table_new(&table);
+	ck_assert_int_eq(r, 0);
+
+	symbol = tsm_symbol_append(table, 'e', 0x0301);
+	ck_assert_uint_gt(symbol, TSM_UCS4_MAX);
+	codepoints = tsm_symbol_get(table, &symbol, &length);
+	ck_assert_uint_eq(length, 2);
+	ck_assert_uint_eq(codepoints[0], 'e');
+	ck_assert_uint_eq(codepoints[1], 0x0301);
+	ck_assert_uint_eq(tsm_symbol_get_width(table, symbol), 1);
+
+	tsm_symbol_table_unref(table);
+}
+END_TEST
+
 TEST_DEFINE_CASE(misc)
 	TEST(test_symbol_null)
 	TEST(test_symbol_init)
+	TEST(test_symbol_combining)
 TEST_END_CASE
 
 TEST_DEFINE(

@@ -409,6 +409,38 @@ static void screen_write(struct tsm_screen *con, unsigned int x,
 	}
 }
 
+/*
+ * Attach a zero-width symbol to the preceding printable cell. Combining
+ * marks do not consume a terminal column, but they must remain part of the
+ * stored symbol so renderers and selection copy can see the complete text.
+ */
+static void screen_write_combining(struct tsm_screen *con, tsm_symbol_t ch)
+{
+	struct line *line;
+	struct cell *cell;
+	unsigned int x;
+
+	if (con->cursor_y >= con->size_y || !con->cursor_x)
+		return;
+
+	line = con->lines[con->cursor_y];
+	x = con->cursor_x > con->size_x ? con->size_x : con->cursor_x;
+	while (x > 0) {
+		cell = &line->cells[--x];
+		/* A wide glyph's continuation cells do not own a symbol. */
+		if (!cell->width)
+			continue;
+		/* There is no base character to which this mark can attach. */
+		if (!cell->ch)
+			return;
+
+		cell->ch = tsm_symbol_append(con->sym_table, cell->ch, ch);
+		cell->age = con->age_cnt;
+		line->age = con->age_cnt;
+		return;
+	}
+}
+
 static void screen_erase_region(struct tsm_screen *con,
 				 unsigned int x_from,
 				 unsigned int y_from,
@@ -1134,8 +1166,11 @@ void tsm_screen_write(struct tsm_screen *con, tsm_symbol_t ch,
 		return;
 
 	len = tsm_symbol_get_width(con->sym_table, ch);
-	if (!len)
+	if (!len) {
+		screen_inc_age(con);
+		screen_write_combining(con, ch);
 		return;
+	}
 
 	screen_inc_age(con);
 
