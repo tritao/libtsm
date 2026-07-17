@@ -38,11 +38,8 @@
 
 /* miscellaneous */
 
-#define shl_offsetof(pointer, type, member)                                                        \
-	({                                                                                         \
-		const typeof(((type *)0)->member) *__ptr = (pointer);                              \
-		(type *)(((char *)__ptr) - offsetof(type, member));                                \
-	})
+#define shl_offsetof(pointer, type, member) \
+	((type *)((char *)(pointer) - offsetof(type, member)))
 
 /* double linked list */
 
@@ -70,12 +67,12 @@ static inline void shl_dlist__link(struct shl_dlist *prev, struct shl_dlist *nex
 
 static inline void shl_dlist_link(struct shl_dlist *head, struct shl_dlist *n)
 {
-	return shl_dlist__link(head, head->next, n);
+	shl_dlist__link(head, head->next, n);
 }
 
 static inline void shl_dlist_link_tail(struct shl_dlist *head, struct shl_dlist *n)
 {
-	return shl_dlist__link(head->prev, head, n);
+	shl_dlist__link(head->prev, head, n);
 }
 
 static inline void shl_dlist__unlink(struct shl_dlist *prev, struct shl_dlist *next)
@@ -102,11 +99,11 @@ static inline bool shl_dlist_empty(struct shl_dlist *head)
 
 #define shl_dlist_last(head, type, member) shl_dlist_entry((head)->prev, type, member)
 
-#define shl_dlist_next(iter, head, member) \
-	((iter)->member.next == (head) ? NULL : shl_dlist_entry((iter)->member.next, typeof(*iter), list))
+#define shl_dlist_next(iter, head, type, member) \
+	((iter)->member.next == (head) ? NULL : shl_dlist_entry((iter)->member.next, type, member))
 
-#define shl_dlist_prev(iter, head, member) \
-	((iter)->member.prev == (head) ? NULL : shl_dlist_entry((iter)->member.prev, typeof(*iter), list))
+#define shl_dlist_prev(iter, head, type, member) \
+	((iter)->member.prev == (head) ? NULL : shl_dlist_entry((iter)->member.prev, type, member))
 
 #define shl_dlist_for_each(iter, head) for (iter = (head)->next; iter != (head); iter = iter->next)
 

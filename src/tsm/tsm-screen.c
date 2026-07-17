@@ -882,7 +882,8 @@ void tsm_screen_sb_up(struct tsm_screen *con, unsigned int num)
 			if (con->sb.pos_num == 0)
 				return;
 
-			prev = shl_dlist_prev(con->sb.pos, &con->sb.list, list);
+			prev = shl_dlist_prev(con->sb.pos, &con->sb.list,
+						      struct line, list);
 			if (!prev) {
 				llog_error(con, "prev is NULL, con->sb.pos_num: %d con->sb.count: %d",
 					   con->sb.pos_num, con->sb.count);
@@ -908,7 +909,8 @@ void tsm_screen_sb_down(struct tsm_screen *con, unsigned int num)
 	con->age = con->age_cnt;
 
 	while (num-- && con->sb.pos && con->sb.pos_num < con->sb.count) {
-			con->sb.pos = shl_dlist_next(con->sb.pos, &con->sb.list, list);
+			con->sb.pos = shl_dlist_next(con->sb.pos, &con->sb.list,
+							     struct line, list);
 			++con->sb.pos_num;
 	}
 	if (con->sb.pos_num == con->sb.count)

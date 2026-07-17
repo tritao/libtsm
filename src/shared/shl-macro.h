@@ -16,21 +16,46 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_WIN32)
+#include <io.h>
+#define shl_close _close
+#define shl_strdup _strdup
+#else
 #include <unistd.h>
+#define shl_close close
+#define shl_strdup strdup
+#endif
 
 /* macOS compatibility */
 #if !defined static_assert
 #define static_assert _Static_assert
 #endif
 
-/* sanity checks required for some macros */
-#if __SIZEOF_POINTER__ != 4 && __SIZEOF_POINTER__ != 8
-#error "Pointer size is neither 4 nor 8 bytes"
-#endif
-
-/* gcc attributes; look them up for more information */
+/* Compiler attributes. Unsupported attributes intentionally become no-ops. */
+#if defined(_MSC_VER) && !defined(__clang__)
+#define _shl_printf_(_a, _b)
+#define _shl_alloc_(...)
+#define _shl_sentinel_
+#define _shl_noreturn_ __declspec(noreturn)
+#define _shl_unused_
+#define _shl_pure_
+#define _shl_const_
+#define _shl_deprecated_ __declspec(deprecated)
+#define _shl_packed_
+#define _shl_malloc_
+#define _shl_weak_
+#define _shl_likely_(_val) (!!(_val))
+#define _shl_unlikely_(_val) (!!(_val))
+#define _shl_public_ __declspec(dllexport)
+#define _shl_hidden_
+#define _shl_weakref_(_val)
+#define _shl_cleanup_(_val)
+#else
 #define _shl_printf_(_a, _b) __attribute__((__format__(printf, _a, _b)))
 #define _shl_alloc_(...) __attribute__((__alloc_size__(__VA_ARGS__)))
 #define _shl_sentinel_ __attribute__((__sentinel__))
@@ -48,6 +73,7 @@
 #define _shl_hidden_ __attribute__((__visibility__("hidden")))
 #define _shl_weakref_(_val) __attribute__((__weakref__(#_val)))
 #define _shl_cleanup_(_val) __attribute__((__cleanup__(_val)))
+#endif
 
 static inline void shl_freep(void *p)
 {
@@ -59,7 +85,7 @@ static inline void shl_freep(void *p)
 static inline void shl_closep(int *p)
 {
 	if (*p >= 0)
-		close(*p);
+		shl_close(*p);
 }
 
 #define _shl_close_ _shl_cleanup_(shl_closep)
@@ -88,60 +114,40 @@ static inline void shl_set_errno(int *r)
 
 /* get parent pointer by container-type, member and member-pointer */
 #define shl_container_of(_ptr, _type, _member) \
-	({ \
-		const typeof( ((_type *)0)->_member ) *__mptr = (_ptr); \
-		(_type *)( (char *)__mptr - offsetof(_type, _member) ); \
-	})
+	((_type *)((char *)(_ptr) - offsetof(_type, _member)))
 
-/* return maximum of two values and do strict type checking */
-#define shl_max(_a, _b) \
-	({ \
-		typeof(_a) __a = (_a); \
-		typeof(_b) __b = (_b); \
-		(void) (&__a == &__b); \
-		__a > __b ? __a : __b; \
-	})
+/* Return the maximum of two values. Arguments should have no side effects. */
+#define shl_max(_a, _b) (((_a) > (_b)) ? (_a) : (_b))
 
 /* same as shl_max() but perform explicit cast beforehand */
 #define shl_max_t(_type, _a, _b) \
-	({ \
-		_type __a = (_type)(_a); \
-		_type __b = (_type)(_b); \
-		__a > __b ? __a : __b; \
-	})
+	(((_type)(_a) > (_type)(_b)) ? (_type)(_a) : (_type)(_b))
 
-/* return minimum of two values and do strict type checking */
-#define shl_min(_a, _b) \
-	({ \
-		typeof(_a) __a = (_a); \
-		typeof(_b) __b = (_b); \
-		(void) (&__a == &__b); \
-		__a < __b ? __a : __b; \
-	})
+/* Return the minimum of two values. Arguments should have no side effects. */
+#define shl_min(_a, _b) (((_a) < (_b)) ? (_a) : (_b))
 
 /* same as shl_min() but perform explicit cast beforehand */
 #define shl_min_t(_type, _a, _b) \
-	({ \
-		_type __a = (_type)(_a); \
-		_type __b = (_type)(_b); \
-		__a < __b ? __a : __b; \
-	})
+	(((_type)(_a) < (_type)(_b)) ? (_type)(_a) : (_type)(_b))
 
 /* clamp value between low and high barriers */
 #define shl_clamp(_val, _low, _high) \
-	({ \
-		typeof(_val) __v = (_val); \
-		typeof(_low) __l = (_low); \
-		typeof(_high) __h = (_high); \
-		(void) (&__v == &__l); \
-		(void) (&__v == &__h); \
-		((__v > __h) ? __h : ((__v < __l) ? __l : __v)); \
-	})
+	(((_val) > (_high)) ? (_high) : (((_val) < (_low)) ? (_low) : (_val)))
 
 /* align to next higher power-of-2 (except for: 0 => 0, overflow => 0) */
 static inline size_t SHL_ALIGN_POWER2(size_t u)
 {
-	return 1ULL << ((sizeof(u) * 8ULL) - __builtin_clzll(u - 1ULL));
+	size_t power = 1;
+
+	if (u <= 1)
+		return u;
+	--u;
+	while (power <= u) {
+		if (power > SIZE_MAX / 2)
+			return 0;
+		power *= 2;
+	}
+	return power;
 }
 
 /* zero memory or type */
@@ -183,19 +189,12 @@ static inline size_t SHL_ALIGN_POWER2(size_t u)
  */
 
 #define SHL__REAL_MULT(_max, _val, _factor) \
-	({ \
-		(_factor == 0 || *(_val) <= (_max) / (_factor)) ? \
-			((*(_val) *= (_factor)), 0) : \
-			-ERANGE; \
-	})
+	((_factor == 0 || *(_val) <= (_max) / (_factor)) ? \
+		((*(_val) *= (_factor)), 0) : -ERANGE)
 
 #define SHL__UPCAST_MULT(_type, _max, _val, _factor) \
-	({ \
-		_type v = *(_val) * (_type)(_factor); \
-		(v <= (_max)) ? \
-			((*(_val) = v), 0) : \
-			-ERANGE; \
-	})
+	(((*(_val) * (_type)(_factor)) <= (_max)) ? \
+		((*(_val) *= (_type)(_factor)), 0) : -ERANGE)
 
 static inline int shl_mult_ull(unsigned long long *val,
 			       unsigned long long factor)
