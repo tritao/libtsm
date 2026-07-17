@@ -30,6 +30,7 @@ libtsm = shared_library(
     'tsm',
     libtsm_srcs,
     dependencies: deps,
+    c_args: ['-DTSM_BUILDING_DLL'],
     install: true,
     version: version,
     soversion: major,

@@ -105,7 +105,7 @@ static void gtktsm_glyph_free(struct gtktsm_glyph *glyph);
 
 static int gtktsm_font_new(struct gtktsm_font **out)
 {
-	_shl_free_ struct gtktsm_font *font = NULL;
+	struct gtktsm_font *font = NULL;
 
 	if (!out)
 		return -EINVAL;
@@ -121,12 +121,13 @@ static int gtktsm_font_new(struct gtktsm_font **out)
 		g_object_ref(font->map);
 	} else {
 		font->map = pango_cairo_font_map_new();
-		if (!font->map)
+		if (!font->map) {
+			free(font);
 			return -ENOMEM;
+		}
 	}
 
 	*out = font;
-	font = NULL;
 	return 0;
 }
 

@@ -189,14 +189,16 @@ pid_t shl_pty_open(struct shl_pty **out,
 		   unsigned short term_width,
 		   unsigned short term_height)
 {
-	_shl_pty_unref_ struct shl_pty *pty = NULL;
-	_shl_close_ int fd = -1;
-	int slave, r, comm[2];
+	struct shl_pty *pty = NULL;
+	int fd = -1;
+	int slave, r, comm[2] = {-1, -1};
 	pid_t pid;
 	char d;
+	int error;
 
 	if (!out)
 		return -EINVAL;
+	*out = NULL;
 
 	pty = calloc(1, sizeof(*pty));
 	if (!pty)
@@ -208,20 +210,26 @@ pid_t shl_pty_open(struct shl_pty **out,
 	pty->fn_input_data = fn_input_data;
 
 	fd = posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC | O_NONBLOCK);
-	if (fd < 0)
-		return -errno;
+	if (fd < 0) {
+		error = -errno;
+		goto fail;
+	}
 
 	r = pipe2(comm, O_CLOEXEC);
-	if (r < 0)
-		return -errno;
+	if (r < 0) {
+		error = -errno;
+		goto fail;
+	}
 
 	pid = fork();
 	if (pid < 0) {
 		/* error */
-		pid = -errno;
+		error = -errno;
 		close(comm[0]);
+		comm[0] = -1;
 		close(comm[1]);
-		return pid;
+		comm[1] = -1;
+		goto fail;
 	} else if (!pid) {
 		/* child */
 		slave = pty_init_child(fd);
@@ -260,12 +268,26 @@ pid_t shl_pty_open(struct shl_pty **out,
 	/* wait for child setup */
 	d = pty_recv(comm[0]);
 	close(comm[0]);
-	if (d != SHL_PTY_SETUP)
-		return -EINVAL;
+	comm[0] = -1;
+	if (d != SHL_PTY_SETUP) {
+		error = -EINVAL;
+		goto fail;
+	}
 
 	*out = pty;
 	pty = NULL;
 	return pid;
+
+fail:
+	if (comm[0] >= 0)
+		close(comm[0]);
+	if (comm[1] >= 0)
+		close(comm[1]);
+	if (fd >= 0)
+		close(fd);
+	if (pty)
+		shl_pty_unref(pty);
+	return error;
 }
 
 void shl_pty_ref(struct shl_pty *pty)

@@ -33,6 +33,20 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#if defined(_WIN32)
+#if defined(TSM_STATIC)
+#define TSM_API
+#elif defined(TSM_BUILDING_DLL)
+#define TSM_API __declspec(dllexport)
+#else
+#define TSM_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) || defined(__clang__)
+#define TSM_API __attribute__((visibility("default")))
+#else
+#define TSM_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -117,9 +131,10 @@ typedef void (*tsm_log_t) (void *data,
 
 /* ucs4 to utf8 converter */
 
-unsigned int tsm_ucs4_get_width(uint32_t ucs4);
-size_t tsm_ucs4_to_utf8(uint32_t ucs4, char *out);
-char *tsm_ucs4_to_utf8_alloc(const uint32_t *ucs4, size_t len, size_t *len_out);
+TSM_API unsigned int tsm_ucs4_get_width(uint32_t ucs4);
+TSM_API size_t tsm_ucs4_to_utf8(uint32_t ucs4, char *out);
+TSM_API char *tsm_ucs4_to_utf8_alloc(const uint32_t *ucs4, size_t len,
+					     size_t *len_out);
 
 /* symbols */
 
@@ -219,92 +234,95 @@ typedef int (*tsm_screen_draw_cb) (struct tsm_screen *con,
 				   tsm_age_t age,
 				   void *data);
 
-int tsm_screen_new(struct tsm_screen **out, tsm_log_t log, void *log_data);
-void tsm_screen_ref(struct tsm_screen *con);
-void tsm_screen_unref(struct tsm_screen *con);
+TSM_API int tsm_screen_new(struct tsm_screen **out, tsm_log_t log,
+				   void *log_data);
+TSM_API void tsm_screen_ref(struct tsm_screen *con);
+TSM_API void tsm_screen_unref(struct tsm_screen *con);
 
-unsigned int tsm_screen_get_width(struct tsm_screen *con);
-unsigned int tsm_screen_get_height(struct tsm_screen *con);
-int tsm_screen_resize(struct tsm_screen *con, unsigned int x,
-		      unsigned int y);
-int tsm_screen_set_margins(struct tsm_screen *con,
+TSM_API unsigned int tsm_screen_get_width(struct tsm_screen *con);
+TSM_API unsigned int tsm_screen_get_height(struct tsm_screen *con);
+TSM_API int tsm_screen_resize(struct tsm_screen *con, unsigned int x,
+			      unsigned int y);
+TSM_API int tsm_screen_set_margins(struct tsm_screen *con,
 			   unsigned int top, unsigned int bottom);
-void tsm_screen_set_max_sb(struct tsm_screen *con, unsigned int max);
-void tsm_screen_clear_sb(struct tsm_screen *con);
+TSM_API void tsm_screen_set_max_sb(struct tsm_screen *con, unsigned int max);
+TSM_API void tsm_screen_clear_sb(struct tsm_screen *con);
 
-void tsm_screen_sb_up(struct tsm_screen *con, unsigned int num);
-void tsm_screen_sb_down(struct tsm_screen *con, unsigned int num);
-void tsm_screen_sb_page_up(struct tsm_screen *con, unsigned int num);
-void tsm_screen_sb_page_down(struct tsm_screen *con, unsigned int num);
-void tsm_screen_sb_reset(struct tsm_screen *con);
-unsigned int tsm_screen_sb_get_line_count(struct tsm_screen *con);
-unsigned int tsm_screen_sb_get_line_pos(struct tsm_screen *con);
+TSM_API void tsm_screen_sb_up(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_sb_down(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_sb_page_up(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_sb_page_down(struct tsm_screen *con,
+					     unsigned int num);
+TSM_API void tsm_screen_sb_reset(struct tsm_screen *con);
+TSM_API unsigned int tsm_screen_sb_get_line_count(struct tsm_screen *con);
+TSM_API unsigned int tsm_screen_sb_get_line_pos(struct tsm_screen *con);
 
-void tsm_screen_set_def_attr(struct tsm_screen *con,
-			     const struct tsm_screen_attr *attr);
-void tsm_screen_reset(struct tsm_screen *con);
-void tsm_screen_set_flags(struct tsm_screen *con, unsigned int flags);
-void tsm_screen_reset_flags(struct tsm_screen *con, unsigned int flags);
-unsigned int tsm_screen_get_flags(struct tsm_screen *con);
+TSM_API void tsm_screen_set_def_attr(struct tsm_screen *con,
+				     const struct tsm_screen_attr *attr);
+TSM_API void tsm_screen_reset(struct tsm_screen *con);
+TSM_API void tsm_screen_set_flags(struct tsm_screen *con, unsigned int flags);
+TSM_API void tsm_screen_reset_flags(struct tsm_screen *con, unsigned int flags);
+TSM_API unsigned int tsm_screen_get_flags(struct tsm_screen *con);
 
-unsigned int tsm_screen_get_cursor_x(struct tsm_screen *con);
-unsigned int tsm_screen_get_cursor_y(struct tsm_screen *con);
+TSM_API unsigned int tsm_screen_get_cursor_x(struct tsm_screen *con);
+TSM_API unsigned int tsm_screen_get_cursor_y(struct tsm_screen *con);
 
-void tsm_screen_set_tabstop(struct tsm_screen *con);
-void tsm_screen_reset_tabstop(struct tsm_screen *con);
-void tsm_screen_reset_all_tabstops(struct tsm_screen *con);
+TSM_API void tsm_screen_set_tabstop(struct tsm_screen *con);
+TSM_API void tsm_screen_reset_tabstop(struct tsm_screen *con);
+TSM_API void tsm_screen_reset_all_tabstops(struct tsm_screen *con);
 
-void tsm_screen_write(struct tsm_screen *con, tsm_symbol_t ch,
-		      const struct tsm_screen_attr *attr);
-void tsm_screen_newline(struct tsm_screen *con);
-void tsm_screen_scroll_up(struct tsm_screen *con, unsigned int num);
-void tsm_screen_scroll_down(struct tsm_screen *con, unsigned int num);
-void tsm_screen_move_to(struct tsm_screen *con, unsigned int x,
-			unsigned int y);
-void tsm_screen_move_up(struct tsm_screen *con, unsigned int num,
-			bool scroll);
-void tsm_screen_move_down(struct tsm_screen *con, unsigned int num,
-			  bool scroll);
-void tsm_screen_move_left(struct tsm_screen *con, unsigned int num);
-void tsm_screen_move_right(struct tsm_screen *con, unsigned int num);
-void tsm_screen_move_line_end(struct tsm_screen *con);
-void tsm_screen_move_line_home(struct tsm_screen *con);
-void tsm_screen_tab_right(struct tsm_screen *con, unsigned int num);
-void tsm_screen_tab_left(struct tsm_screen *con, unsigned int num);
-void tsm_screen_insert_lines(struct tsm_screen *con, unsigned int num);
-void tsm_screen_delete_lines(struct tsm_screen *con, unsigned int num);
-void tsm_screen_insert_chars(struct tsm_screen *con, unsigned int num);
-void tsm_screen_delete_chars(struct tsm_screen *con, unsigned int num);
-void tsm_screen_erase_cursor(struct tsm_screen *con);
-void tsm_screen_erase_chars(struct tsm_screen *con, unsigned int num);
-void tsm_screen_erase_cursor_to_end(struct tsm_screen *con,
+TSM_API void tsm_screen_write(struct tsm_screen *con, tsm_symbol_t ch,
+			      const struct tsm_screen_attr *attr);
+TSM_API void tsm_screen_newline(struct tsm_screen *con);
+TSM_API void tsm_screen_scroll_up(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_scroll_down(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_move_to(struct tsm_screen *con, unsigned int x,
+				unsigned int y);
+TSM_API void tsm_screen_move_up(struct tsm_screen *con, unsigned int num,
+				bool scroll);
+TSM_API void tsm_screen_move_down(struct tsm_screen *con, unsigned int num,
+				  bool scroll);
+TSM_API void tsm_screen_move_left(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_move_right(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_move_line_end(struct tsm_screen *con);
+TSM_API void tsm_screen_move_line_home(struct tsm_screen *con);
+TSM_API void tsm_screen_tab_right(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_tab_left(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_insert_lines(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_delete_lines(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_insert_chars(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_delete_chars(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_erase_cursor(struct tsm_screen *con);
+TSM_API void tsm_screen_erase_chars(struct tsm_screen *con, unsigned int num);
+TSM_API void tsm_screen_erase_cursor_to_end(struct tsm_screen *con,
 				    bool protect);
-void tsm_screen_erase_home_to_cursor(struct tsm_screen *con,
+TSM_API void tsm_screen_erase_home_to_cursor(struct tsm_screen *con,
 				     bool protect);
-void tsm_screen_erase_current_line(struct tsm_screen *con,
+TSM_API void tsm_screen_erase_current_line(struct tsm_screen *con,
 				   bool protect);
-void tsm_screen_erase_screen_to_cursor(struct tsm_screen *con,
-				       bool protect);
-void tsm_screen_erase_cursor_to_screen(struct tsm_screen *con,
-				       bool protect);
-void tsm_screen_erase_screen(struct tsm_screen *con, bool protect);
+TSM_API void tsm_screen_erase_screen_to_cursor(struct tsm_screen *con,
+				      bool protect);
+TSM_API void tsm_screen_erase_cursor_to_screen(struct tsm_screen *con,
+				      bool protect);
+TSM_API void tsm_screen_erase_screen(struct tsm_screen *con, bool protect);
 
-void tsm_screen_selection_reset(struct tsm_screen *con);
-void tsm_screen_selection_start(struct tsm_screen *con,
+TSM_API void tsm_screen_selection_reset(struct tsm_screen *con);
+TSM_API void tsm_screen_selection_start(struct tsm_screen *con,
 				unsigned int posx,
 				unsigned int posy);
-void tsm_screen_selection_target(struct tsm_screen *con,
+TSM_API void tsm_screen_selection_target(struct tsm_screen *con,
 				 unsigned int posx,
 				 unsigned int posy);
-void tsm_screen_selection_word(struct tsm_screen *con,
+TSM_API void tsm_screen_selection_word(struct tsm_screen *con,
 			       unsigned int posx,
 			       unsigned int posy);
-int tsm_screen_selection_copy(struct tsm_screen *con, char **out);
+TSM_API int tsm_screen_selection_copy(struct tsm_screen *con, char **out);
 
-tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
-			  void *data);
+TSM_API tsm_age_t tsm_screen_draw(struct tsm_screen *con,
+				  tsm_screen_draw_cb draw_cb,
+				  void *data);
 
-const struct tsm_screen_cell *tsm_screen_draw2(struct tsm_screen *con);
+TSM_API const struct tsm_screen_cell *tsm_screen_draw2(struct tsm_screen *con);
 
 enum tsm_screen_cursor_style tsm_screen_get_cursor_style(struct tsm_screen *con);
 void tsm_screen_set_cursor_style(struct tsm_screen *con, enum tsm_screen_cursor_style type);
@@ -472,16 +490,20 @@ typedef void (*tsm_vte_led_cb) (struct tsm_vte *vte,
 				unsigned int leds,
 				void *data);
 
-int tsm_vte_new(struct tsm_vte **out, struct tsm_screen *con,
+TSM_API int tsm_vte_new(struct tsm_vte **out, struct tsm_screen *con,
 		tsm_vte_write_cb write_cb, void *data,
 		tsm_log_t log, void *log_data);
-void tsm_vte_ref(struct tsm_vte *vte);
-void tsm_vte_unref(struct tsm_vte *vte);
+TSM_API void tsm_vte_ref(struct tsm_vte *vte);
+TSM_API void tsm_vte_unref(struct tsm_vte *vte);
 
-void tsm_vte_set_osc_cb(struct tsm_vte *vte, tsm_vte_osc_cb osc_cb, void *osc_data);
-void tsm_vte_set_mouse_cb(struct tsm_vte *vte, tsm_vte_mouse_cb mouse_cb, void *mouse_data);
-void tsm_vte_set_bell_cb(struct tsm_vte *vte, tsm_vte_bell_cb bell_cb, void *bell_data);
-void tsm_vte_set_led_cb(struct tsm_vte *vte, tsm_vte_led_cb led_cb, void *led_data);
+TSM_API void tsm_vte_set_osc_cb(struct tsm_vte *vte, tsm_vte_osc_cb osc_cb,
+					void *osc_data);
+TSM_API void tsm_vte_set_mouse_cb(struct tsm_vte *vte,
+					 tsm_vte_mouse_cb mouse_cb, void *mouse_data);
+TSM_API void tsm_vte_set_bell_cb(struct tsm_vte *vte,
+					 tsm_vte_bell_cb bell_cb, void *bell_data);
+TSM_API void tsm_vte_set_led_cb(struct tsm_vte *vte, tsm_vte_led_cb led_cb,
+					void *led_data);
 
 /**
  * @brief Set color palette to one of the predefined palette on the vte object.
@@ -507,7 +529,8 @@ void tsm_vte_set_led_cb(struct tsm_vte *vte, tsm_vte_led_cb led_cb, void *led_da
  * @retval -EINVAL if vte is NULL.
  * @retval -ENOMEM if malloc fails.
  */
-int tsm_vte_set_palette(struct tsm_vte *vte, const char *palette_name);
+TSM_API int tsm_vte_set_palette(struct tsm_vte *vte,
+					const char *palette_name);
 
 /**
  * @brief Set a custom palette on the vte object.
@@ -547,17 +570,19 @@ int tsm_vte_set_palette(struct tsm_vte *vte, const char *palette_name);
  * @retval -EINVAL if vte is NULL.
  * @retval -ENOMEM if malloc fails.
  */
-int tsm_vte_set_custom_palette(struct tsm_vte *vte, uint8_t (*palette)[3]);
+TSM_API int tsm_vte_set_custom_palette(struct tsm_vte *vte,
+					       uint8_t (*palette)[3]);
 
-void tsm_vte_get_def_attr(struct tsm_vte *vte, struct tsm_screen_attr *out);
-unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
+TSM_API void tsm_vte_get_def_attr(struct tsm_vte *vte,
+					  struct tsm_screen_attr *out);
+TSM_API unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
 
-unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
-unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte);
+TSM_API unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
+TSM_API unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte);
 
-void tsm_vte_reset(struct tsm_vte *vte);
-void tsm_vte_hard_reset(struct tsm_vte *vte);
-void tsm_vte_input(struct tsm_vte *vte, const char *u8, size_t len);
+TSM_API void tsm_vte_reset(struct tsm_vte *vte);
+TSM_API void tsm_vte_hard_reset(struct tsm_vte *vte);
+TSM_API void tsm_vte_input(struct tsm_vte *vte, const char *u8, size_t len);
 
 /**
  * @brief Set backspace key to send either backspace or delete.
@@ -570,15 +595,16 @@ void tsm_vte_input(struct tsm_vte *vte, const char *u8, size_t len);
  * @param vte The vte object to set on
  * @param enable Send ASCII delete if \c true, send ASCII backspace if \c false.
  */
-void tsm_vte_set_backspace_sends_delete(struct tsm_vte *vte, bool enable);
-bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
+TSM_API void tsm_vte_set_backspace_sends_delete(struct tsm_vte *vte,
+						bool enable);
+TSM_API bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 			     uint32_t ascii, unsigned int mods,
 			     uint32_t unicode);
-bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
+TSM_API bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
         unsigned int cell_y, unsigned int pixel_x, unsigned int pixel_y,
         unsigned int button, unsigned int event, unsigned char flags);
 
-void tsm_vte_paste(struct tsm_vte *vte, const char *data);
+TSM_API void tsm_vte_paste(struct tsm_vte *vte, const char *data);
 /** @} */
 
 #ifdef __cplusplus
