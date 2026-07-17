@@ -120,15 +120,23 @@ static void word_select(struct tsm_screen *con,
 	con->sel_active = true;
 }
 
+static void age_selection_visible(struct tsm_screen *con,
+				  struct selection_pos *start,
+				  struct selection_pos *end,
+				  tsm_age_t age);
+
 SHL_EXPORT
 void tsm_screen_selection_reset(struct tsm_screen *con)
 {
+	struct selection_pos old_start, old_end;
+
 	if (!con)
 		return;
 
+	old_start = con->sel_start;
+	old_end = con->sel_end;
 	screen_inc_age(con);
-	/* TODO: more sophisticated ageing */
-	con->age = con->age_cnt;
+	age_selection_visible(con, &old_start, &old_end, con->age_cnt);
 
 	con->sel_active = false;
 	con->sel_start.line = NULL;
@@ -211,22 +219,84 @@ static bool selection_is_before(struct tsm_screen *con, struct selection_pos *a,
 	return true;
 }
 
+/*
+ * Selection highlighting is part of the rendering state, but it does not
+ * change the cell contents. Age only the visible cells covered by a selection
+ * so age-filtered renderers can repaint the old and new highlight ranges
+ * without treating the complete screen as changed.
+ */
+static void age_selection_visible(struct tsm_screen *con,
+				  struct selection_pos *start,
+				  struct selection_pos *end,
+				  tsm_age_t age)
+{
+	struct line *line, *next_line = NULL;
+	unsigned int i, k = 0;
+
+	if (!con || !start || !end || !start->line || !end->line)
+		return;
+
+	next_line = con->sb.pos;
+	for (i = 0; i < con->size_y; ++i) {
+		unsigned int from = 0, to = 0;
+		struct selection_pos line_start, line_end;
+
+		if (next_line) {
+			line = next_line;
+			next_line = shl_dlist_next(next_line, &con->sb.list,
+							struct line, list);
+		} else {
+			line = con->lines[k++];
+		}
+
+		if (!line || !line->size)
+			continue;
+
+		if (line == start->line && line == end->line) {
+			from = start->x < line->size ? start->x : line->size;
+			to = end->x + 1 < line->size ? end->x + 1 : line->size;
+		} else if (line == start->line) {
+			from = start->x < line->size ? start->x : line->size;
+			to = line->size;
+		} else if (line == end->line) {
+			from = 0;
+			to = end->x + 1 < line->size ? end->x + 1 : line->size;
+		} else {
+			line_start.x = 0;
+			line_start.line = line;
+			line_end.x = line->size - 1;
+			line_end.line = line;
+			if (selection_is_before(con, start, &line_start) &&
+			    selection_is_before(con, &line_end, end))
+				to = line->size;
+		}
+
+		for ( ; from < to; ++from)
+			line->cells[from].age = age;
+	}
+}
+
 SHL_EXPORT
 void tsm_screen_selection_start(struct tsm_screen *con,
 				unsigned int posx,
 				unsigned int posy)
 {
+	struct selection_pos old_start, old_end;
+
 	if (!con || posx >= con->size_x || posy >= con->size_y)
 		return;
 
+	old_start = con->sel_start;
+	old_end = con->sel_end;
 	screen_inc_age(con);
-	/* TODO: more sophisticated ageing */
-	con->age = con->age_cnt;
+	age_selection_visible(con, &old_start, &old_end, con->age_cnt);
 
 	con->sel_active = true;
 	selection_set(con, &con->sel_begin, posx, posy);
 	con->sel_start = con->sel_begin;
 	con->sel_end = con->sel_begin;
+	age_selection_visible(con, &con->sel_start, &con->sel_end,
+			      con->age_cnt);
 }
 
 SHL_EXPORT
@@ -235,13 +305,15 @@ void tsm_screen_selection_target(struct tsm_screen *con,
 				 unsigned int posy)
 {
 	struct selection_pos target;
+	struct selection_pos old_start, old_end;
 
 	if (!con || !con->sel_active || posx >= con->size_x || posy >= con->size_y)
 		return;
 
+	old_start = con->sel_start;
+	old_end = con->sel_end;
 	screen_inc_age(con);
-	/* TODO: more sophisticated ageing */
-	con->age = con->age_cnt;
+	age_selection_visible(con, &old_start, &old_end, con->age_cnt);
 
 	selection_set(con, &target, posx, posy);
 	if (selection_is_before(con, &con->sel_begin, &target)) {
@@ -251,6 +323,8 @@ void tsm_screen_selection_target(struct tsm_screen *con,
 		con->sel_start = target;
 		con->sel_end = con->sel_begin;
 	}
+	age_selection_visible(con, &con->sel_start, &con->sel_end,
+			      con->age_cnt);
 }
 
 SHL_EXPORT
@@ -258,14 +332,20 @@ void tsm_screen_selection_word(struct tsm_screen *con,
 			       unsigned int posx,
 			       unsigned int posy)
 {
+	struct selection_pos old_start, old_end;
+
 	if (!con || posx >= con->size_x || posy >= con->size_y)
 		return;
 
+	old_start = con->sel_start;
+	old_end = con->sel_end;
 	screen_inc_age(con);
-	/* TODO: more sophisticated ageing */
-	con->age = con->age_cnt;
+	age_selection_visible(con, &old_start, &old_end, con->age_cnt);
 
 	word_select(con, posx, posy);
+	if (con->sel_active)
+		age_selection_visible(con, &con->sel_start, &con->sel_end,
+				      con->age_cnt);
 }
 
 /*
