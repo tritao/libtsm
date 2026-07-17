@@ -184,6 +184,73 @@ static void checked_vte_input(struct tsm_vte *vte, const char *u8, size_t len)
 	ck_assert(write_cb_called);
 }
 
+static bool combining_draw_seen;
+
+static int combining_draw_cb(struct tsm_screen *screen, uint64_t id,
+				     const uint32_t *codepoints, size_t length,
+				     unsigned int width, unsigned int posx,
+				     unsigned int posy,
+				     const struct tsm_screen_attr *attr,
+				     tsm_age_t age, void *data)
+{
+	UNUSED(screen);
+	UNUSED(id);
+	UNUSED(width);
+	UNUSED(attr);
+	UNUSED(age);
+	UNUSED(data);
+
+	if (posx == 0 && posy == 0 && length == 2) {
+		ck_assert_uint_eq(codepoints[0], 'e');
+		ck_assert_uint_eq(codepoints[1], 0x0301);
+		combining_draw_seen = true;
+	}
+	return 0;
+}
+
+START_TEST(test_vte_combining_marks)
+{
+	struct tsm_screen *screen;
+	struct tsm_vte *vte;
+	struct tsm_symbol_table *symbols;
+	const uint32_t *codepoints;
+	char *selection = NULL;
+	size_t length;
+	int r;
+
+	r = tsm_screen_new(&screen, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+	r = tsm_vte_new(&vte, screen, write_cb, NULL, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+
+	/* Feed the UTF-8 sequence in separate chunks to cover parser state. */
+	tsm_vte_input(vte, "e\xcc", 2);
+	tsm_vte_input(vte, "\x81", 1);
+	ck_assert_uint_eq(tsm_screen_get_cursor_x(screen), 1);
+
+	symbols = screen->sym_table;
+	codepoints = tsm_symbol_get(symbols, &screen->lines[0]->cells[0].ch,
+					    &length);
+	ck_assert_uint_eq(length, 2);
+	ck_assert_uint_eq(codepoints[0], 'e');
+	ck_assert_uint_eq(codepoints[1], 0x0301);
+
+	combining_draw_seen = false;
+	tsm_screen_draw(screen, combining_draw_cb, NULL);
+	ck_assert(combining_draw_seen);
+
+	tsm_screen_selection_start(screen, 0, 0);
+	tsm_screen_selection_target(screen, 0, 0);
+	r = tsm_screen_selection_copy(screen, &selection);
+	ck_assert_int_gt(r, 0);
+	ck_assert_str_eq(selection, "e\xcc\x81\n");
+	free(selection);
+
+	tsm_vte_unref(vte);
+	tsm_screen_unref(screen);
+}
+END_TEST
+
 START_TEST(test_vte_osc_query)
 {
 	struct tsm_screen *screen;
@@ -564,6 +631,7 @@ END_TEST
 TEST_DEFINE_CASE(misc)
 	TEST(test_vte_init)
 	TEST(test_vte_null)
+	TEST(test_vte_combining_marks)
 	TEST(test_vte_custom_palette)
 	TEST(test_vte_osc_query)
 	TEST(test_vte_osc4)

@@ -146,9 +146,6 @@ static unsigned int calc_line_len(struct line *line)
 	return 0;
 }
 
-/* TODO: tsm_ucs4_to_utf8 expects UCS4 characters, but a cell contains a
- * tsm-symbol (which can contain multiple UCS4 chars). Fix this when introducing
- * support for combining characters. */
 static unsigned int copy_line(struct tsm_screen *con, struct line *line, char *buf)
 {
 	unsigned int i, start, end;
@@ -166,10 +163,21 @@ static unsigned int copy_line(struct tsm_screen *con, struct line *line, char *b
 		end = line_len;
 
 	for (i = start; i < end; i++) {
-		if (line->cells[i].ch)
-			pos += tsm_ucs4_to_utf8(line->cells[i].ch, pos);
-		else
+		tsm_symbol_t symbol = line->cells[i].ch;
+		const uint32_t *codepoints;
+		size_t length, j;
+
+		/* Wide continuation cells are part of the preceding symbol. */
+		if (!line->cells[i].width)
+			continue;
+		if (!symbol) {
 			pos += tsm_ucs4_to_utf8(' ', pos);
+			continue;
+		}
+
+		codepoints = tsm_symbol_get(con->sym_table, &symbol, &length);
+		for (j = 0; j < length; ++j)
+			pos += tsm_ucs4_to_utf8(codepoints[j], pos);
 	}
 	pos += tsm_ucs4_to_utf8('\n', pos);
 	return pos - buf;
