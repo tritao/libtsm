@@ -752,12 +752,12 @@ static void vte_write_debug(struct tsm_vte *vte, const char *u8, size_t len,
 	/* in local echo mode, directly parse the data again */
 	if (!vte->parse_cnt && !(vte->flags & TSM_VTE_FLAG_SEND_RECEIVE_MODE)) {
 		if (vte->flags & TSM_VTE_FLAG_PREPEND_ESCAPE)
-			tsm_vte_input(vte, "\e", 1);
+			tsm_vte_input(vte, "\033", 1);
 		tsm_vte_input(vte, u8, len);
 	}
 
 	if (vte->flags & TSM_VTE_FLAG_PREPEND_ESCAPE)
-		vte->write_cb(vte, "\e", 1, vte->data);
+		vte->write_cb(vte, "\033", 1, vte->data);
 	vte->write_cb(vte, u8, len, vte->data);
 
 	vte->flags &= ~TSM_VTE_FLAG_PREPEND_ESCAPE;
@@ -895,7 +895,7 @@ void tsm_vte_hard_reset(struct tsm_vte *vte)
 
 static void send_primary_da(struct tsm_vte *vte)
 {
-	const static char str[] = "\e[?60;1;6;9;15c";
+	const static char str[] = "\033[?60;1;6;9;15c";
 	vte_write(vte, str, sizeof(str) - 1);
 }
 
@@ -1848,7 +1848,7 @@ static void csi_dev_attr(struct tsm_vte *vte)
 			send_primary_da(vte);
 			return;
 		} else if (vte->csi_flags & CSI_GT) {
-			vte_write(vte, "\e[>1;1;0c", 9);
+			vte_write(vte, "\033[>1;1;0c", 9);
 			return;
 		}
 	}
@@ -1863,13 +1863,13 @@ static void csi_dsr(struct tsm_vte *vte)
 	unsigned int x, y, len;
 
 	if (vte->csi_argv[0] == 5) {
-		vte_write(vte, "\e[0n", 4);
+		vte_write(vte, "\033[0n", 4);
 	} else if (vte->csi_argv[0] == 6) {
 		x = tsm_screen_get_cursor_x(vte->con);
 		y = tsm_screen_get_cursor_y(vte->con);
-		len = snprintf(buf, sizeof(buf), "\e[%u;%uR", y + 1, x + 1);
+		len = snprintf(buf, sizeof(buf), "\033[%u;%uR", y + 1, x + 1);
 		if (len >= sizeof(buf))
-			vte_write(vte, "\e[0;0R", 6);
+			vte_write(vte, "\033[0;0R", 6);
 		else
 			vte_write(vte, buf, len);
 	}
@@ -1884,7 +1884,7 @@ static void csi_report_window_size(struct tsm_vte *vte)
 
 	w = tsm_screen_get_width(vte->con);
 	h = tsm_screen_get_height(vte->con);
-	len = snprintf(buf, sizeof(buf), "\e[%u;%u;%ut", resp,  h, w);
+	len = snprintf(buf, sizeof(buf), "\033[%u;%u;%ut", resp,  h, w);
 	if (len >= sizeof(buf))
 		return;
 	vte_write(vte, buf, len);
@@ -2176,27 +2176,26 @@ static void do_csi(struct tsm_vte *vte, uint32_t data)
 	}
 }
 
+static bool vte_in_range(uint32_t raw, uint32_t first, uint32_t last);
+
 /* map a character according to current GL and GR maps */
 static uint32_t vte_map(struct tsm_vte *vte, uint32_t val)
 {
 	/* 32, 127, 160 and 255 map to identity like all values >255 */
-	switch (val) {
-	case 33 ... 126:
+	if (vte_in_range(val, 33, 126)) {
 		if (vte->glt) {
 			val = (**vte->glt)[val - 32];
 			vte->glt = NULL;
 		} else {
 			val = (**vte->gl)[val - 32];
 		}
-		break;
-	case 161 ... 254:
+	} else if (vte_in_range(val, 161, 254)) {
 		if (vte->grt) {
 			val = (**vte->grt)[val - 160];
 			vte->grt = NULL;
 		} else {
 			val = (**vte->gr)[val - 160];
 		}
-		break;
 	}
 
 	return val;
@@ -2218,7 +2217,7 @@ static void vte_write_xcolor(struct tsm_vte *vte, char *code,
 			     uint8_t r, uint8_t g, uint8_t b)
 {
 	char buf[64];
-	snprintf(buf, sizeof(buf), "\e]%s;rgb:%02x%02x/%02x%02x/%02x%02x%s",
+	snprintf(buf, sizeof(buf), "\033]%s;rgb:%02x%02x/%02x%02x/%02x%02x%s",
 		 code, r, r, g, g, b, b, end_seq);
 	vte_write(vte, buf, strlen(buf));
 }
@@ -2401,338 +2400,338 @@ static void do_trans(struct tsm_vte *vte, uint32_t data, int state, int act)
  * This parses the new input character \data. It performs state transition and
  * calls the right callbacks for each action.
  */
+static bool vte_in_range(uint32_t raw, uint32_t first, uint32_t last)
+{
+	return raw >= first && raw <= last;
+}
+
+static bool vte_is_c0_control(uint32_t raw)
+{
+	return vte_in_range(raw, 0x00, 0x17) || raw == 0x19 ||
+	       vte_in_range(raw, 0x1c, 0x1f);
+}
+
+static bool vte_is_esc_final(uint32_t raw)
+{
+	return vte_in_range(raw, 0x30, 0x4f) ||
+	       vte_in_range(raw, 0x51, 0x57) || raw == 0x59 ||
+	       raw == 0x5a || raw == 0x5c || vte_in_range(raw, 0x60, 0x7e);
+}
+
 static void parse_data(struct tsm_vte *vte, uint32_t raw)
 {
 	/* events that may occur in any state */
-	switch (raw) {
-		case 0x18:
-		case 0x1a:
-		case 0x80 ... 0x8f:
-		case 0x91 ... 0x97:
-		case 0x99:
-		case 0x9a:
-		case 0x9c:
-			do_trans(vte, raw, STATE_GROUND, ACTION_EXECUTE);
-			return;
-		case 0x1b:
-			do_trans(vte, raw, STATE_ESC, ACTION_NONE);
-			return;
-		case 0x98:
-		case 0x9e:
-		case 0x9f:
-			do_trans(vte, raw, STATE_ST_IGNORE, ACTION_NONE);
-			return;
-		case 0x90:
-			do_trans(vte, raw, STATE_DCS_ENTRY, ACTION_NONE);
-			return;
-		case 0x9d:
-			do_trans(vte, raw, STATE_OSC_STRING, ACTION_NONE);
-			return;
-		case 0x9b:
-			do_trans(vte, raw, STATE_CSI_ENTRY, ACTION_NONE);
-			return;
+	if (raw == 0x18 || raw == 0x1a ||
+	    vte_in_range(raw, 0x80, 0x8f) ||
+	    vte_in_range(raw, 0x91, 0x97) || raw == 0x99 ||
+	    raw == 0x9a || raw == 0x9c) {
+		do_trans(vte, raw, STATE_GROUND, ACTION_EXECUTE);
+		return;
+	}
+	if (raw == 0x1b) {
+		do_trans(vte, raw, STATE_ESC, ACTION_NONE);
+		return;
+	}
+	if (raw == 0x98 || raw == 0x9e || raw == 0x9f) {
+		do_trans(vte, raw, STATE_ST_IGNORE, ACTION_NONE);
+		return;
+	}
+	if (raw == 0x90) {
+		do_trans(vte, raw, STATE_DCS_ENTRY, ACTION_NONE);
+		return;
+	}
+	if (raw == 0x9d) {
+		do_trans(vte, raw, STATE_OSC_STRING, ACTION_NONE);
+		return;
+	}
+	if (raw == 0x9b) {
+		do_trans(vte, raw, STATE_CSI_ENTRY, ACTION_NONE);
+		return;
 	}
 
 	/* events that depend on the current state */
 	switch (vte->state) {
 	case STATE_GROUND:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x80 ... 0x8f:
-		case 0x91 ... 0x9a:
-		case 0x9c:
+		if (vte_is_c0_control(raw) ||
+		    vte_in_range(raw, 0x80, 0x8f) ||
+		    vte_in_range(raw, 0x91, 0x9a) || raw == 0x9c) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x20 ... 0x7f:
+		}
+		if (vte_in_range(raw, 0x20, 0x7f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_PRINT);
 			return;
 		}
 		do_trans(vte, raw, STATE_NONE, ACTION_PRINT);
 		return;
 	case STATE_ESC:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_is_c0_control(raw)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x7f:
+		}
+		if (raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_ESC_INT, ACTION_COLLECT);
 			return;
-		case 0x30 ... 0x4f:
-		case 0x51 ... 0x57:
-		case 0x59:
-		case 0x5a:
-		case 0x5c:
-		case 0x60 ... 0x7e:
+		}
+		if (vte_is_esc_final(raw)) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_ESC_DISPATCH);
 			return;
-		case 0x5b:
+		}
+		if (raw == 0x5b) {
 			do_trans(vte, raw, STATE_CSI_ENTRY, ACTION_NONE);
 			return;
-		case 0x5d:
+		}
+		if (raw == 0x5d) {
 			do_trans(vte, raw, STATE_OSC_STRING, ACTION_NONE);
 			return;
-		case 0x50:
+		}
+		if (raw == 0x50) {
 			do_trans(vte, raw, STATE_DCS_ENTRY, ACTION_NONE);
 			return;
-		case 0x58:
-		case 0x5e:
-		case 0x5f:
+		}
+		if (raw == 0x58 || raw == 0x5e || raw == 0x5f) {
 			do_trans(vte, raw, STATE_ST_IGNORE, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_ESC_INT, ACTION_COLLECT);
 		return;
 	case STATE_ESC_INT:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_is_c0_control(raw)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_COLLECT);
 			return;
-		case 0x7f:
+		}
+		if (raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x30 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x30, 0x7e)) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_ESC_DISPATCH);
 			return;
 		}
 		do_trans(vte, raw, STATE_NONE, ACTION_COLLECT);
 		return;
 	case STATE_CSI_ENTRY:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_is_c0_control(raw)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x7f:
+		}
+		if (raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_CSI_INT, ACTION_COLLECT);
 			return;
-		case 0x3a:
+		}
+		if (raw == 0x3a) {
 			do_trans(vte, raw, STATE_CSI_IGNORE, ACTION_NONE);
 			return;
-		case 0x30 ... 0x39:
-		case 0x3b:
+		}
+		if (vte_in_range(raw, 0x30, 0x39) || raw == 0x3b) {
 			do_trans(vte, raw, STATE_CSI_PARAM, ACTION_PARAM);
 			return;
-		case 0x3c ... 0x3f:
+		}
+		if (vte_in_range(raw, 0x3c, 0x3f)) {
 			do_trans(vte, raw, STATE_CSI_PARAM, ACTION_COLLECT);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_CSI_DISPATCH);
 			return;
 		}
 		do_trans(vte, raw, STATE_CSI_IGNORE, ACTION_NONE);
 		return;
 	case STATE_CSI_PARAM:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_is_c0_control(raw)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x30 ... 0x39:
-		case 0x3b:
+		}
+		if (vte_in_range(raw, 0x30, 0x39) || raw == 0x3b) {
 			do_trans(vte, raw, STATE_NONE, ACTION_PARAM);
 			return;
-		case 0x7f:
+		}
+		if (raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x3a:
-		case 0x3c ... 0x3f:
+		}
+		if (raw == 0x3a || vte_in_range(raw, 0x3c, 0x3f)) {
 			do_trans(vte, raw, STATE_CSI_IGNORE, ACTION_NONE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_CSI_INT, ACTION_COLLECT);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_CSI_DISPATCH);
 			return;
 		}
 		do_trans(vte, raw, STATE_CSI_IGNORE, ACTION_NONE);
 		return;
 	case STATE_CSI_INT:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_is_c0_control(raw)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_COLLECT);
 			return;
-		case 0x7f:
+		}
+		if (raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x30 ... 0x3f:
+		}
+		if (vte_in_range(raw, 0x30, 0x3f)) {
 			do_trans(vte, raw, STATE_CSI_IGNORE, ACTION_NONE);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_CSI_DISPATCH);
 			return;
 		}
 		do_trans(vte, raw, STATE_CSI_IGNORE, ACTION_NONE);
 		return;
 	case STATE_CSI_IGNORE:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_is_c0_control(raw)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_EXECUTE);
 			return;
-		case 0x20 ... 0x3f:
-		case 0x7f:
+		}
+		if (vte_in_range(raw, 0x20, 0x3f) || raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 		return;
 	case STATE_DCS_ENTRY:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x7f:
+		if (vte_is_c0_control(raw) || raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x3a:
+		}
+		if (raw == 0x3a) {
 			do_trans(vte, raw, STATE_DCS_IGNORE, ACTION_NONE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_DCS_INT, ACTION_COLLECT);
 			return;
-		case 0x30 ... 0x39:
-		case 0x3b:
+		}
+		if (vte_in_range(raw, 0x30, 0x39) || raw == 0x3b) {
 			do_trans(vte, raw, STATE_DCS_PARAM, ACTION_PARAM);
 			return;
-		case 0x3c ... 0x3f:
+		}
+		if (vte_in_range(raw, 0x3c, 0x3f)) {
 			do_trans(vte, raw, STATE_DCS_PARAM, ACTION_COLLECT);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_DCS_PASS, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_DCS_PASS, ACTION_NONE);
 		return;
 	case STATE_DCS_PARAM:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x7f:
+		if (vte_is_c0_control(raw) || raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x30 ... 0x39:
-		case 0x3b:
+		}
+		if (vte_in_range(raw, 0x30, 0x39) || raw == 0x3b) {
 			do_trans(vte, raw, STATE_NONE, ACTION_PARAM);
 			return;
-		case 0x3a:
-		case 0x3c ... 0x3f:
+		}
+		if (raw == 0x3a || vte_in_range(raw, 0x3c, 0x3f)) {
 			do_trans(vte, raw, STATE_DCS_IGNORE, ACTION_NONE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_DCS_INT, ACTION_COLLECT);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_DCS_PASS, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_DCS_PASS, ACTION_NONE);
 		return;
 	case STATE_DCS_INT:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x7f:
+		if (vte_is_c0_control(raw) || raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x20 ... 0x2f:
+		}
+		if (vte_in_range(raw, 0x20, 0x2f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_COLLECT);
 			return;
-		case 0x30 ... 0x3f:
+		}
+		if (vte_in_range(raw, 0x30, 0x3f)) {
 			do_trans(vte, raw, STATE_DCS_IGNORE, ACTION_NONE);
 			return;
-		case 0x40 ... 0x7e:
+		}
+		if (vte_in_range(raw, 0x40, 0x7e)) {
 			do_trans(vte, raw, STATE_DCS_PASS, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_DCS_PASS, ACTION_NONE);
 		return;
 	case STATE_DCS_PASS:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x20 ... 0x7e:
+		if (vte_is_c0_control(raw) || vte_in_range(raw, 0x20, 0x7e)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_DCS_COLLECT);
 			return;
-		case 0x7f:
+		}
+		if (raw == 0x7f) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x9c:
+		}
+		if (raw == 0x9c) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_NONE, ACTION_DCS_COLLECT);
 		return;
 	case STATE_DCS_IGNORE:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x20 ... 0x7f:
+		if (vte_is_c0_control(raw) || vte_in_range(raw, 0x20, 0x7f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x9c:
+		}
+		if (raw == 0x9c) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 		return;
 	case STATE_OSC_STRING:
-		switch (raw) {
-		case 0x00 ... 0x06:
-		case 0x08 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
+		if (vte_in_range(raw, 0x00, 0x06) ||
+		    vte_in_range(raw, 0x08, 0x17) || raw == 0x19 ||
+		    vte_in_range(raw, 0x1c, 0x1f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x20 ... 0x7f:
+		}
+		if (vte_in_range(raw, 0x20, 0x7f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_OSC_COLLECT);
 			return;
-		case 0x07:
-		case 0x9c:
+		}
+		if (raw == 0x07 || raw == 0x9c) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_NONE);
 			return;
 		}
 		do_trans(vte, raw, STATE_NONE, ACTION_OSC_COLLECT);
 		return;
 	case STATE_ST_IGNORE:
-		switch (raw) {
-		case 0x00 ... 0x17:
-		case 0x19:
-		case 0x1c ... 0x1f:
-		case 0x20 ... 0x7f:
+		if (vte_is_c0_control(raw) || vte_in_range(raw, 0x20, 0x7f)) {
 			do_trans(vte, raw, STATE_NONE, ACTION_IGNORE);
 			return;
-		case 0x9c:
+		}
+		if (raw == 0x9c) {
 			do_trans(vte, raw, STATE_GROUND, ACTION_NONE);
 			return;
 		}
@@ -2818,8 +2817,8 @@ static char csi_modifier_from_mask(unsigned int mods)
 
 static void vte_write_arrow(struct tsm_vte *vte, char direction, unsigned int mods)
 {
-	char code_with_modifier[6] = {'\e', '[', '1', ';', '0', 'A'};
-	char code[3] = {'\e', '[',  'A'};
+	char code_with_modifier[6] = {'\033', '[', '1', ';', '0', 'A'};
+	char code[3] = {'\033', '[',  'A'};
 
 	vte->flags &= ~TSM_VTE_FLAG_PREPEND_ESCAPE;
 
@@ -3026,7 +3025,7 @@ bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 			vte_write(vte, "\x09", 1);
 			return true;
 		case XKB_KEY_ISO_Left_Tab:
-			vte_write(vte, "\e[Z", 3);
+			vte_write(vte, "\033[Z", 3);
 			return true;
 		case XKB_KEY_Linefeed:
 			vte_write(vte, "\x0a", 1);
@@ -3060,7 +3059,7 @@ bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 			return true;
 		case XKB_KEY_KP_Enter:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE) {
-				vte_write(vte, "\eOM", 3);
+				vte_write(vte, "\033OM", 3);
 				return true;
 			}
 			/* fallthrough */
@@ -3071,41 +3070,41 @@ bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 				vte_write(vte, "\x0d", 1);
 			return true;
 		case XKB_KEY_Find:
-			vte_write(vte, "\e[1~", 4);
+			vte_write(vte, "\033[1~", 4);
 			return true;
 		case XKB_KEY_Insert:
-			vte_write(vte, "\e[2~", 4);
+			vte_write(vte, "\033[2~", 4);
 			return true;
 		case XKB_KEY_Delete:
-			vte_write(vte, "\e[3~", 4);
+			vte_write(vte, "\033[3~", 4);
 			return true;
 		case XKB_KEY_Select:
-			vte_write(vte, "\e[4~", 4);
+			vte_write(vte, "\033[4~", 4);
 			return true;
 		case XKB_KEY_Page_Up:
 		case XKB_KEY_KP_Page_Up:
 			/* Combinations with ALT are handled as TSM_VTE_FLAG_PREPEND_ESCAPE flag */
 			if ((mods & (TSM_CONTROL_MASK | TSM_SHIFT_MASK)) == (TSM_CONTROL_MASK | TSM_SHIFT_MASK)) {
-				vte_write(vte, "\e[5;6~", 6);
+				vte_write(vte, "\033[5;6~", 6);
 			} else if (mods & TSM_CONTROL_MASK) {
-				vte_write(vte, "\e[5;5~", 6);
+				vte_write(vte, "\033[5;5~", 6);
 			} else if (mods & TSM_SHIFT_MASK) {
-				vte_write(vte, "\e[5;2~", 6);
+				vte_write(vte, "\033[5;2~", 6);
 			} else {
-				vte_write(vte, "\e[5~", 4);
+				vte_write(vte, "\033[5~", 4);
 			}
 			return true;
 		case XKB_KEY_KP_Page_Down:
 		case XKB_KEY_Page_Down:
 			/* Combinations with ALT are handled as TSM_VTE_FLAG_PREPEND_ESCAPE flag */
 			if ((mods & (TSM_CONTROL_MASK | TSM_SHIFT_MASK)) == (TSM_CONTROL_MASK | TSM_SHIFT_MASK)) {
-				vte_write(vte, "\e[6;6~", 6);
+				vte_write(vte, "\033[6;6~", 6);
 			} else if (mods & TSM_CONTROL_MASK) {
-				vte_write(vte, "\e[6;5~", 6);
+				vte_write(vte, "\033[6;5~", 6);
 			} else if (mods & TSM_SHIFT_MASK) {
-				vte_write(vte, "\e[6;2~", 6);
+				vte_write(vte, "\033[6;2~", 6);
 			} else {
-				vte_write(vte, "\e[6~", 4);
+				vte_write(vte, "\033[6~", 4);
 			}
 			return true;
 		case XKB_KEY_Up:
@@ -3127,115 +3126,115 @@ bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 		case XKB_KEY_KP_Insert:
 		case XKB_KEY_KP_0:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOp", 3);
+				vte_write(vte, "\033Op", 3);
 			else
 				vte_write(vte, "0", 1);
 			return true;
 		case XKB_KEY_KP_1:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOq", 3);
+				vte_write(vte, "\033Oq", 3);
 			else
 				vte_write(vte, "1", 1);
 			return true;
 		case XKB_KEY_KP_2:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOr", 3);
+				vte_write(vte, "\033Or", 3);
 			else
 				vte_write(vte, "2", 1);
 			return true;
 		case XKB_KEY_KP_3:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOs", 3);
+				vte_write(vte, "\033Os", 3);
 			else
 				vte_write(vte, "3", 1);
 			return true;
 		case XKB_KEY_KP_4:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOt", 3);
+				vte_write(vte, "\033Ot", 3);
 			else
 				vte_write(vte, "4", 1);
 			return true;
 		case XKB_KEY_KP_5:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOu", 3);
+				vte_write(vte, "\033Ou", 3);
 			else
 				vte_write(vte, "5", 1);
 			return true;
 		case XKB_KEY_KP_6:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOv", 3);
+				vte_write(vte, "\033Ov", 3);
 			else
 				vte_write(vte, "6", 1);
 			return true;
 		case XKB_KEY_KP_7:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOw", 3);
+				vte_write(vte, "\033Ow", 3);
 			else
 				vte_write(vte, "7", 1);
 			return true;
 		case XKB_KEY_KP_8:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOx", 3);
+				vte_write(vte, "\033Ox", 3);
 			else
 				vte_write(vte, "8", 1);
 			return true;
 		case XKB_KEY_KP_9:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOy", 3);
+				vte_write(vte, "\033Oy", 3);
 			else
 				vte_write(vte, "9", 1);
 			return true;
 		case XKB_KEY_KP_Subtract:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOm", 3);
+				vte_write(vte, "\033Om", 3);
 			else
 				vte_write(vte, "-", 1);
 			return true;
 		case XKB_KEY_KP_Separator:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOl", 3);
+				vte_write(vte, "\033Ol", 3);
 			else
 				vte_write(vte, ",", 1);
 			return true;
 		case XKB_KEY_KP_Delete:
 		case XKB_KEY_KP_Decimal:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOn", 3);
+				vte_write(vte, "\033On", 3);
 			else
 				vte_write(vte, ".", 1);
 			return true;
 		case XKB_KEY_KP_Equal:
 		case XKB_KEY_KP_Divide:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOj", 3);
+				vte_write(vte, "\033Oj", 3);
 			else
 				vte_write(vte, "/", 1);
 			return true;
 		case XKB_KEY_KP_Multiply:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOo", 3);
+				vte_write(vte, "\033Oo", 3);
 			else
 				vte_write(vte, "*", 1);
 			return true;
 		case XKB_KEY_KP_Add:
 			if (vte->flags & TSM_VTE_FLAG_KEYPAD_APPLICATION_MODE)
-				vte_write(vte, "\eOk", 3);
+				vte_write(vte, "\033Ok", 3);
 			else
 				vte_write(vte, "+", 1);
 			return true;
 		case XKB_KEY_Home:
 		case XKB_KEY_KP_Home:
 			if (vte->flags & TSM_VTE_FLAG_CURSOR_KEY_MODE)
-				vte_write(vte, "\eOH", 3);
+				vte_write(vte, "\033OH", 3);
 			else
-				vte_write(vte, "\e[H", 3);
+				vte_write(vte, "\033[H", 3);
 			return true;
 		case XKB_KEY_End:
 		case XKB_KEY_KP_End:
 			if (vte->flags & TSM_VTE_FLAG_CURSOR_KEY_MODE)
-				vte_write(vte, "\eOF", 3);
+				vte_write(vte, "\033OF", 3);
 			else
-				vte_write(vte, "\e[F", 3);
+				vte_write(vte, "\033[F", 3);
 			return true;
 		case XKB_KEY_KP_Space:
 			vte_write(vte, " ", 1);
@@ -3250,133 +3249,133 @@ bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 		case XKB_KEY_F1:
 		case XKB_KEY_KP_F1:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[23~", 5);
+				vte_write(vte, "\033[23~", 5);
 			else
-				vte_write(vte, "\eOP", 3);
+				vte_write(vte, "\033OP", 3);
 			return true;
 		case XKB_KEY_F2:
 		case XKB_KEY_KP_F2:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[24~", 5);
+				vte_write(vte, "\033[24~", 5);
 			else
-				vte_write(vte, "\eOQ", 3);
+				vte_write(vte, "\033OQ", 3);
 			return true;
 		case XKB_KEY_F3:
 		case XKB_KEY_KP_F3:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[25~", 5);
+				vte_write(vte, "\033[25~", 5);
 			else
-				vte_write(vte, "\eOR", 3);
+				vte_write(vte, "\033OR", 3);
 			return true;
 		case XKB_KEY_F4:
 		case XKB_KEY_KP_F4:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[1;2S", 6);
-				vte_write(vte, "\e[26~", 5);
+				//vte_write(vte, "\033[1;2S", 6);
+				vte_write(vte, "\033[26~", 5);
 			else
-				vte_write(vte, "\eOS", 3);
+				vte_write(vte, "\033OS", 3);
 			return true;
 		case XKB_KEY_F5:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[15;2~", 7);
-				vte_write(vte, "\e[28~", 5);
+				//vte_write(vte, "\033[15;2~", 7);
+				vte_write(vte, "\033[28~", 5);
 			else
-				vte_write(vte, "\e[15~", 5);
+				vte_write(vte, "\033[15~", 5);
 			return true;
 		case XKB_KEY_F6:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[17;2~", 7);
-				vte_write(vte, "\e[29~", 5);
+				//vte_write(vte, "\033[17;2~", 7);
+				vte_write(vte, "\033[29~", 5);
 			else
-				vte_write(vte, "\e[17~", 5);
+				vte_write(vte, "\033[17~", 5);
 			return true;
 		case XKB_KEY_F7:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[18;2~", 7);
-				vte_write(vte, "\e[31~", 5);
+				//vte_write(vte, "\033[18;2~", 7);
+				vte_write(vte, "\033[31~", 5);
 			else
-				vte_write(vte, "\e[18~", 5);
+				vte_write(vte, "\033[18~", 5);
 			return true;
 		case XKB_KEY_F8:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[19;2~", 7);
-				vte_write(vte, "\e[32~", 5);
+				//vte_write(vte, "\033[19;2~", 7);
+				vte_write(vte, "\033[32~", 5);
 			else
-				vte_write(vte, "\e[19~", 5);
+				vte_write(vte, "\033[19~", 5);
 			return true;
 		case XKB_KEY_F9:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[20;2~", 7);
-				vte_write(vte, "\e[33~", 5);
+				//vte_write(vte, "\033[20;2~", 7);
+				vte_write(vte, "\033[33~", 5);
 			else
-				vte_write(vte, "\e[20~", 5);
+				vte_write(vte, "\033[20~", 5);
 			return true;
 		case XKB_KEY_F10:
 			if (mods & TSM_SHIFT_MASK)
-				//vte_write(vte, "\e[21;2~", 7);
-				vte_write(vte, "\e[34~", 5);
+				//vte_write(vte, "\033[21;2~", 7);
+				vte_write(vte, "\033[34~", 5);
 			else
-				vte_write(vte, "\e[21~", 5);
+				vte_write(vte, "\033[21~", 5);
 			return true;
 		case XKB_KEY_F11:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[23;2~", 7);
+				vte_write(vte, "\033[23;2~", 7);
 			else
-				vte_write(vte, "\e[23~", 5);
+				vte_write(vte, "\033[23~", 5);
 			return true;
 		case XKB_KEY_F12:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[24;2~", 7);
+				vte_write(vte, "\033[24;2~", 7);
 			else
-				vte_write(vte, "\e[24~", 5);
+				vte_write(vte, "\033[24~", 5);
 			return true;
 		case XKB_KEY_F13:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[25;2~", 7);
+				vte_write(vte, "\033[25;2~", 7);
 			else
-				vte_write(vte, "\e[25~", 5);
+				vte_write(vte, "\033[25~", 5);
 			return true;
 		case XKB_KEY_F14:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[26;2~", 7);
+				vte_write(vte, "\033[26;2~", 7);
 			else
-				vte_write(vte, "\e[26~", 5);
+				vte_write(vte, "\033[26~", 5);
 			return true;
 		case XKB_KEY_F15:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[28;2~", 7);
+				vte_write(vte, "\033[28;2~", 7);
 			else
-				vte_write(vte, "\e[28~", 5);
+				vte_write(vte, "\033[28~", 5);
 			return true;
 		case XKB_KEY_F16:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[29;2~", 7);
+				vte_write(vte, "\033[29;2~", 7);
 			else
-				vte_write(vte, "\e[29~", 5);
+				vte_write(vte, "\033[29~", 5);
 			return true;
 		case XKB_KEY_F17:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[31;2~", 7);
+				vte_write(vte, "\033[31;2~", 7);
 			else
-				vte_write(vte, "\e[31~", 5);
+				vte_write(vte, "\033[31~", 5);
 			return true;
 		case XKB_KEY_F18:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[32;2~", 7);
+				vte_write(vte, "\033[32;2~", 7);
 			else
-				vte_write(vte, "\e[32~", 5);
+				vte_write(vte, "\033[32~", 5);
 			return true;
 		case XKB_KEY_F19:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[33;2~", 7);
+				vte_write(vte, "\033[33;2~", 7);
 			else
-				vte_write(vte, "\e[33~", 5);
+				vte_write(vte, "\033[33~", 5);
 			return true;
 		case XKB_KEY_F20:
 			if (mods & TSM_SHIFT_MASK)
-				vte_write(vte, "\e[34;2~", 7);
+				vte_write(vte, "\033[34;2~", 7);
 			else
-				vte_write(vte, "\e[34~", 5);
+				vte_write(vte, "\033[34~", 5);
 			return true;
 	}
 
@@ -3469,7 +3468,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 			modifiers = 0;
 
 		reply_flags = (button | modifiers) + 0x20;
-		snprintf((char*) &buffer, sizeof(buffer), "\e[M%c%c%c", reply_flags, cell_x, cell_y);
+		snprintf((char*) &buffer, sizeof(buffer), "\033[M%c%c%c", reply_flags, cell_x, cell_y);
 
 		vte_write(vte, buffer, strlen(buffer));
 		return true;
@@ -3491,7 +3490,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 			vte->mouse_last_row = cell_y;
 		}
 
-		snprintf((char*) &buffer, sizeof(buffer), "\e[<%d;%d;%d%c", reply_flags, cell_x, cell_y, pressed ? 'M' : 'm');
+		snprintf((char*) &buffer, sizeof(buffer), "\033[<%d;%d;%d%c", reply_flags, cell_x, cell_y, pressed ? 'M' : 'm');
 
 		vte_write(vte, buffer, strlen(buffer));
 		return true;
@@ -3506,7 +3505,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 			pressed = true;
 		}
 
-		snprintf((char*) &buffer, sizeof(buffer), "\e[<%d;%d;%d%c", reply_flags, pixel_x, pixel_y, pressed ? 'M' : 'm');
+		snprintf((char*) &buffer, sizeof(buffer), "\033[<%d;%d;%d%c", reply_flags, pixel_x, pixel_y, pressed ? 'M' : 'm');
 
 		vte_write(vte, buffer, strlen(buffer));
 		return true;
@@ -3521,8 +3520,8 @@ void tsm_vte_paste(struct tsm_vte *vte, const char *data)
 		return;
 
 	if (vte->bracketed_paste) {
-		const char start[] = "\e[200~";
-		const char end[] = "\e[201~";
+		const char start[] = "\033[200~";
+		const char end[] = "\033[201~";
 		char *buf;
 		int len;
 
