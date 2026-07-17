@@ -299,16 +299,19 @@ static void screen_scroll_up(struct tsm_screen *con, unsigned int num)
 	if (num > max)
 		num = max;
 
-	/* We cache lines on the stack to speed up the scrolling. However, if
-	 * num is too big we might get overflows here so use recursion if num
+	/* We cache lines in a temporary array to speed up the scrolling. However,
+	 * if num is too big we might get overflows here so use recursion if num
 	 * exceeds a hard-coded limit.
 	 * 128 seems to be a sane limit that should never be reached but should
 	 * also be small enough so we do not get stack overflows. */
 	if (num > 128) {
 		screen_scroll_up(con, 128);
-		return screen_scroll_up(con, num - 128);
+		screen_scroll_up(con, num - 128);
+		return;
 	}
-	struct line *cache[num];
+	struct line **cache = malloc(num * sizeof(*cache));
+	if (!cache)
+		return;
 
 	for (i = 0; i < num; ++i) {
 		pos = con->margin_top + i;
@@ -334,6 +337,7 @@ static void screen_scroll_up(struct tsm_screen *con, unsigned int num)
 
 	memcpy(&con->lines[con->margin_top + (max - num)],
 	       cache, num * sizeof(struct line*));
+	free(cache);
 }
 
 static void screen_scroll_down(struct tsm_screen *con, unsigned int num)
@@ -353,9 +357,12 @@ static void screen_scroll_down(struct tsm_screen *con, unsigned int num)
 	/* see screen_scroll_up() for an explanation */
 	if (num > 128) {
 		screen_scroll_down(con, 128);
-		return screen_scroll_down(con, num - 128);
+		screen_scroll_down(con, num - 128);
+		return;
 	}
-	struct line *cache[num];
+	struct line **cache = malloc(num * sizeof(*cache));
+	if (!cache)
+		return;
 
 	for (i = 0; i < num; ++i) {
 		cache[i] = con->lines[con->margin_bottom - i];
@@ -371,6 +378,7 @@ static void screen_scroll_down(struct tsm_screen *con, unsigned int num)
 
 	memcpy(&con->lines[con->margin_top],
 	       cache, num * sizeof(struct line*));
+	free(cache);
 }
 
 static void screen_write(struct tsm_screen *con, unsigned int x,
@@ -1452,7 +1460,9 @@ void tsm_screen_insert_lines(struct tsm_screen *con, unsigned int num)
 	if (num > max)
 		num = max;
 
-	struct line *cache[num];
+	struct line **cache = malloc(num * sizeof(*cache));
+	if (!cache)
+		return;
 
 	for (i = 0; i < num; ++i) {
 		cache[i] = con->lines[con->margin_bottom - i];
@@ -1468,6 +1478,7 @@ void tsm_screen_insert_lines(struct tsm_screen *con, unsigned int num)
 		memcpy(&con->lines[con->cursor_y],
 		       cache, num * sizeof(struct line*));
 	}
+	free(cache);
 
 	con->cursor_x = 0;
 }
@@ -1492,7 +1503,9 @@ void tsm_screen_delete_lines(struct tsm_screen *con, unsigned int num)
 	if (num > max)
 		num = max;
 
-	struct line *cache[num];
+	struct line **cache = malloc(num * sizeof(*cache));
+	if (!cache)
+		return;
 
 	for (i = 0; i < num; ++i) {
 		cache[i] = con->lines[con->cursor_y + i];
@@ -1508,6 +1521,7 @@ void tsm_screen_delete_lines(struct tsm_screen *con, unsigned int num)
 		memcpy(&con->lines[con->cursor_y + (max - num)],
 		       cache, num * sizeof(struct line*));
 	}
+	free(cache);
 
 	con->cursor_x = 0;
 }
