@@ -91,7 +91,8 @@ tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
 	for (i = 0; i < con->size_y; ++i) {
 		if (next_line) {
 			line = next_line;
-			next_line = shl_dlist_next(next_line, &con->sb.list, list);
+			next_line = shl_dlist_next(next_line, &con->sb.list,
+							struct line, list);
 		} else {
 			line = con->lines[k];
 			k++;
@@ -249,7 +250,8 @@ const struct tsm_screen_cell *tsm_screen_draw2(struct tsm_screen *con)
 	for (i = 0; i < con->size_y; ++i) {
 		if (next_line) {
 			line = next_line;
-			next_line = shl_dlist_next(next_line, &con->sb.list, list);
+			next_line = shl_dlist_next(next_line, &con->sb.list,
+							struct line, list);
 		} else {
 			line = con->lines[k];
 			k++;

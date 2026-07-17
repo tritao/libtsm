@@ -35,7 +35,11 @@
 #include "shl_dlist.h"
 #include "shl-llog.h"
 
+#if defined(_MSC_VER) && !defined(__clang__)
+#define SHL_EXPORT __declspec(dllexport)
+#else
 #define SHL_EXPORT __attribute__((visibility("default")))
+#endif
 
 /* max combined-symbol length */
 #define TSM_UCS4_MAXLEN 10

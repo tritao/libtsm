@@ -80,7 +80,7 @@ static void selection_set(struct tsm_screen *con, struct selection_pos *sel,
 	}
 	line = con->sb.pos;
 	while (y--)
-		line = shl_dlist_next(line, &con->sb.list, list);
+		line = shl_dlist_next(line, &con->sb.list, struct line, list);
 	sel->line = line;
 }
 
@@ -293,7 +293,7 @@ static struct line *get_next_line(struct tsm_screen *con, struct line *line, uns
 	struct line *next;
 
 	if (line->sb_id) {
-		next = shl_dlist_next(line, &con->sb.list, list);
+		next = shl_dlist_next(line, &con->sb.list, struct line, list);
 		if (next)
 			return next;
 		*index = 0;
@@ -362,7 +362,7 @@ int tsm_screen_selection_copy(struct tsm_screen *con, char **out)
 
 	/* invalid selection */
 	if (start->line == NULL && end->line == NULL) {
-		*out = strdup("");
+		*out = shl_strdup("");
 		return 0;
 	}
 

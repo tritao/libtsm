@@ -627,7 +627,7 @@ int tsm_vte_set_palette(struct tsm_vte *vte, const char *palette_name)
 		return -EINVAL;
 
 	if (palette_name) {
-		tmp = strdup(palette_name);
+		tmp = shl_strdup(palette_name);
 		if (!tmp)
 			return -ENOMEM;
 	}

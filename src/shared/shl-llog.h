@@ -81,7 +81,18 @@ typedef void (*llog_submit_t) (void *data,
 			       const char *format,
 			       va_list args);
 
-static inline __attribute__((format(printf, 8, 9)))
+#if defined(_MSC_VER) && !defined(__clang__)
+#define SHL_LLOG_FORMAT(_a, _b)
+#define SHL_LLOG_UNUSED
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
+#else
+#define SHL_LLOG_FORMAT(_a, _b) __attribute__((format(printf, _a, _b)))
+#define SHL_LLOG_UNUSED __attribute__((__unused__))
+#endif
+
+static inline SHL_LLOG_FORMAT(8, 9)
 void llog_format(llog_submit_t llog,
 		 void *data,
 		 const char *file,
@@ -104,7 +115,7 @@ void llog_format(llog_submit_t llog,
 }
 
 #ifndef LLOG_SUBSYSTEM
-static const char *LLOG_SUBSYSTEM __attribute__((__unused__));
+static const char *LLOG_SUBSYSTEM SHL_LLOG_UNUSED;
 #endif
 
 #define LLOG_DEFAULT __FILE__, __LINE__, __func__, LLOG_SUBSYSTEM
@@ -124,7 +135,7 @@ static const char *LLOG_SUBSYSTEM __attribute__((__unused__));
 		    (format), \
 		    ##__VA_ARGS__)
 
-static inline __attribute__((format(printf, 4, 5)))
+static inline SHL_LLOG_FORMAT(4, 5)
 void llog_dummyf(llog_submit_t llog, void *data, unsigned int sev,
 		 const char *format, ...)
 {
