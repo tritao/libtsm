@@ -41,9 +41,11 @@
 
 #define LLOG_SUBSYSTEM "tsm-render"
 
-SHL_EXPORT
-tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
-			  void *data)
+static tsm_age_t screen_draw(struct tsm_screen *con,
+			     tsm_age_t since,
+			     bool filter,
+			     tsm_screen_draw_cb draw_cb,
+			     void *data)
 {
 	unsigned int cur_x, cur_y;
 	unsigned int i, j, k;
@@ -157,6 +159,9 @@ tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
 					age = con->age;
 			}
 
+			if (filter && since != 0 && age != 0 && age <= since)
+				continue;
+
 			/* Encode attributes into the id to avoid caching problems */
 			id = cell->ch;
 			if (attr.bold)
@@ -192,6 +197,20 @@ tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
 	} else {
 		return con->age_cnt;
 	}
+}
+
+SHL_EXPORT
+tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
+			  void *data)
+{
+	return screen_draw(con, 0, false, draw_cb, data);
+}
+
+SHL_EXPORT
+tsm_age_t tsm_screen_draw_since(struct tsm_screen *con, tsm_age_t since,
+				 tsm_screen_draw_cb draw_cb, void *data)
+{
+	return screen_draw(con, since, true, draw_cb, data);
 }
 
 static void color_dim(struct tsm_screen_color  *out, const struct tsm_screen_color *fg, const struct tsm_screen_color *bg)

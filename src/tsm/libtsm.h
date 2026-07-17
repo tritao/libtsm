@@ -322,6 +322,13 @@ TSM_API tsm_age_t tsm_screen_draw(struct tsm_screen *con,
 				  tsm_screen_draw_cb draw_cb,
 				  void *data);
 
+/* Draw only cells newer than @since. A zero age disables filtering and draws
+ * the complete screen. The returned age follows tsm_screen_draw(). */
+TSM_API tsm_age_t tsm_screen_draw_since(struct tsm_screen *con,
+					 tsm_age_t since,
+					 tsm_screen_draw_cb draw_cb,
+					 void *data);
+
 TSM_API const struct tsm_screen_cell *tsm_screen_draw2(struct tsm_screen *con);
 
 enum tsm_screen_cursor_style tsm_screen_get_cursor_style(struct tsm_screen *con);
