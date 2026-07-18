@@ -160,3 +160,8 @@ global:
 	tsm_screen_set_cursor_style;
 	tsm_screen_draw_since;
 } LIBTSM_4_6;
+
+LIBTSM_4_8 {
+global:
+	tsm_screen_get_row_id;
+} LIBTSM_4_7;

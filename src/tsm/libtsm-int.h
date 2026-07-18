@@ -92,6 +92,7 @@ struct line {
 	struct shl_dlist list;		/* list node, next/prev are NULL if not in sb */
 	unsigned int size;		/* real width */
 	struct cell *cells;		/* actuall cells */
+	uint64_t id;			/* opaque identity for row observers */
 	uint64_t sb_id;			/* sb ID, 0 if not in sb */
 	tsm_age_t age;			/* age of the whole line */
 };
@@ -143,6 +144,7 @@ struct tsm_screen {
 	tsm_age_t age;				/* whole screen age */
 
 	struct tsm_scrollback sb;
+	uint64_t last_line_id;		/* monotonically increasing row identity */
 
 	/* cursor: positions are always in-bound, but cursor_x might be
 	 * bigger than size_x if new-line is pending */

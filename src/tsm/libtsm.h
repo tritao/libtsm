@@ -241,6 +241,11 @@ TSM_API void tsm_screen_unref(struct tsm_screen *con);
 
 TSM_API unsigned int tsm_screen_get_width(struct tsm_screen *con);
 TSM_API unsigned int tsm_screen_get_height(struct tsm_screen *con);
+/* Return an opaque identity for the line currently visible at @p row. The
+ * value is only useful for comparing rows between snapshots; callers must not
+ * interpret it or retain any associated storage. */
+TSM_API uint64_t tsm_screen_get_row_id(struct tsm_screen *con,
+                                       unsigned int row);
 TSM_API int tsm_screen_resize(struct tsm_screen *con, unsigned int x,
 			      unsigned int y);
 TSM_API int tsm_screen_set_margins(struct tsm_screen *con,

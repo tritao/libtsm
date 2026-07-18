@@ -127,6 +127,13 @@ void screen_cell_init(struct tsm_screen *con, struct cell *cell)
 	screen_cell_init_generic(con, cell, &con->def_attr);
 }
 
+static uint64_t next_line_id(struct tsm_screen *con)
+{
+	if (con->last_line_id == UINT64_MAX)
+		con->last_line_id = 0;
+	return ++con->last_line_id;
+}
+
 static int line_new(struct tsm_screen *con, struct line **out,
 		    unsigned int width)
 {
@@ -141,6 +148,7 @@ static int line_new(struct tsm_screen *con, struct line **out,
 		return -ENOMEM;
 	line->list.next = NULL;
 	line->list.prev = NULL;
+	line->id = next_line_id(con);
 	line->sb_id = 0;
 	line->size = width;
 	line->age = con->age_cnt;
@@ -618,6 +626,42 @@ unsigned int tsm_screen_get_height(struct tsm_screen *con)
 		return 0;
 
 	return con->size_y;
+}
+
+static struct line *get_visible_line(struct tsm_screen *con,
+				     unsigned int row)
+{
+	struct line *scroll_line;
+	unsigned int main_row = 0;
+	unsigned int index;
+
+	if (!con || row >= con->size_y)
+		return NULL;
+
+	scroll_line = con->sb.pos;
+	for (index = 0; index < con->size_y; ++index) {
+		struct line *line;
+
+		if (scroll_line) {
+			line = scroll_line;
+			scroll_line = shl_dlist_next(scroll_line, &con->sb.list,
+						     struct line, list);
+		} else {
+			line = con->lines[main_row++];
+		}
+
+		if (index == row)
+			return line;
+	}
+
+	return NULL;
+}
+
+SHL_EXPORT
+uint64_t tsm_screen_get_row_id(struct tsm_screen *con, unsigned int row)
+{
+	struct line *line = get_visible_line(con, row);
+	return line == NULL ? 0 : line->id;
 }
 
 SHL_EXPORT
