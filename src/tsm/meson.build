@@ -33,7 +33,10 @@ endif
 
 deps = [wcwidth_dep, shl_dep, xkbcommon_dep]
 
-libtsm = shared_library(
+# Let Meson's default_library option select the linkage model. This keeps the
+# normal shared-library build while allowing embedders to use a static
+# fallback without carrying a second runtime library.
+libtsm = library(
     'tsm',
     libtsm_srcs,
     dependencies: deps,
