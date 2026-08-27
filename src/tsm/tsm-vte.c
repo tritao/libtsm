@@ -693,6 +693,33 @@ bool tsm_vte_get_synchronized_output(struct tsm_vte *vte)
 }
 
 SHL_EXPORT
+bool tsm_vte_get_focus_reporting(struct tsm_vte *vte)
+{
+	if (!vte)
+		return false;
+
+	return vte->focus_reporting;
+}
+
+SHL_EXPORT
+bool tsm_vte_get_alternate_scroll(struct tsm_vte *vte)
+{
+	if (!vte)
+		return false;
+
+	return vte->alternate_scroll;
+}
+
+SHL_EXPORT
+bool tsm_vte_get_bracketed_paste(struct tsm_vte *vte)
+{
+	if (!vte)
+		return false;
+
+	return vte->bracketed_paste;
+}
+
+SHL_EXPORT
 unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte)
 {
 	if (!vte) {

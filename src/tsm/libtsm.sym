@@ -169,5 +169,8 @@ global:
 LIBTSM_4_9 {
 global:
 	tsm_vte_get_synchronized_output;
+	tsm_vte_get_focus_reporting;
+	tsm_vte_get_alternate_scroll;
+	tsm_vte_get_bracketed_paste;
 	tsm_vte_set_focus;
 } LIBTSM_4_8;
