@@ -548,6 +548,30 @@ START_TEST(test_vte_synchronized_output)
 }
 END_TEST
 
+START_TEST(test_vte_kitty_keyboard_probe_unsupported)
+{
+	struct tsm_screen *screen;
+	struct tsm_vte *vte;
+	const char expected[] = "\033[?60;1;6;9;15c";
+	int r;
+
+	r = tsm_screen_new(&screen, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+	r = tsm_vte_new(&vte, screen, storing_write_cb, NULL, NULL, NULL);
+	ck_assert_int_eq(r, 0);
+
+	/* Unsupported Kitty keyboard protocol is detected by the lack of a
+	 * keyboard-flags response; the adjacent DA query still gets answered. */
+	storing_write_cb_reset();
+	tsm_vte_input(vte, "\033[?u\033[c", 7);
+	ck_assert_mem_eq(write_buffer, expected, sizeof(expected) - 1);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, sizeof(expected) - 1);
+
+	tsm_vte_unref(vte);
+	tsm_screen_unref(screen);
+}
+END_TEST
+
 /* Regression test for https://github.com/Aetf/libtsm/issues/26 */
 START_TEST(test_vte_decrqm_no_reset)
 {
@@ -737,6 +761,7 @@ TEST_DEFINE_CASE(misc)
 	TEST(test_vte_backspace_key)
 	TEST(test_vte_get_flags)
 	TEST(test_vte_synchronized_output)
+	TEST(test_vte_kitty_keyboard_probe_unsupported)
 	TEST(test_vte_decrqm_no_reset)
 	TEST(test_vte_csi_cursor_up_down)
 TEST_END_CASE

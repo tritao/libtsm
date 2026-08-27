@@ -1914,6 +1914,18 @@ static void csi_report_window_size(struct tsm_vte *vte)
 	vte_write(vte, buf, len);
 }
 
+static void csi_keyboard_enhancement(struct tsm_vte *vte)
+{
+	/* CSI ? u is the Kitty keyboard protocol query. The protocol is not
+	 * implemented yet; intentionally send no reply so applications can use
+	 * their normal fallback path. */
+	if ((vte->csi_flags & CSI_WHAT) && vte->csi_argc == 1 &&
+	    vte->csi_argv[0] == -1)
+		return;
+
+	llog_debug(vte, "unhandled keyboard enhancement CSI sequence");
+}
+
 static void do_csi(struct tsm_vte *vte, uint32_t data)
 {
 	int num, x, y, upper, lower;
@@ -2167,6 +2179,9 @@ static void do_csi(struct tsm_vte *vte, uint32_t data)
 			csi_report_window_size(vte);
 		else
 			llog_debug(vte, "unhandled CSI t sequence %d", vte->csi_argv[0]);
+		break;
+	case 'u':
+		csi_keyboard_enhancement(vte);
 		break;
 	case 'b': /* Repeat last char */
 		num = vte->csi_argv[0];
