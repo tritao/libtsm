@@ -165,3 +165,8 @@ LIBTSM_4_8 {
 global:
 	tsm_screen_get_row_id;
 } LIBTSM_4_7;
+
+LIBTSM_4_9 {
+global:
+	tsm_vte_get_synchronized_output;
+} LIBTSM_4_8;

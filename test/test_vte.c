@@ -93,6 +93,7 @@ START_TEST(test_vte_null)
 
 	tsm_vte_get_def_attr(NULL, NULL);
 	tsm_vte_get_flags(NULL);
+	tsm_vte_get_synchronized_output(NULL);
 
 	tsm_vte_get_mouse_mode(NULL);
 	tsm_vte_get_mouse_event(NULL);
@@ -450,6 +451,68 @@ START_TEST(test_vte_get_flags)
 }
 END_TEST
 
+static unsigned int synchronized_draw_calls;
+
+static int synchronized_draw_cb(struct tsm_screen *screen, uint64_t id,
+					const uint32_t *codepoints, size_t length,
+					unsigned int width, unsigned int posx,
+					unsigned int posy,
+					const struct tsm_screen_attr *attr,
+					tsm_age_t age, void *data)
+{
+	UNUSED(screen);
+	UNUSED(id);
+	UNUSED(codepoints);
+	UNUSED(length);
+	UNUSED(width);
+	UNUSED(posx);
+	UNUSED(posy);
+	UNUSED(attr);
+	UNUSED(age);
+	UNUSED(data);
+
+	++synchronized_draw_calls;
+	return 0;
+}
+
+START_TEST(test_vte_synchronized_output)
+{
+	struct tsm_screen *screen;
+	struct tsm_vte *vte;
+	tsm_age_t previous_age;
+	int r;
+
+	r = tsm_screen_new(&screen, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+
+	r = tsm_vte_new(&vte, screen, write_cb, NULL, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+
+	ck_assert(!tsm_vte_get_synchronized_output(vte));
+	previous_age = tsm_screen_draw(screen, synchronized_draw_cb, NULL);
+
+	tsm_vte_input(vte, "\033[?2026h", 8);
+	ck_assert(tsm_vte_get_synchronized_output(vte));
+
+	/* DEC synchronized output changes presentation timing, not screen state. */
+	synchronized_draw_calls = 0;
+	tsm_vte_input(vte, "frame", 5);
+	tsm_screen_draw_since(screen, previous_age, synchronized_draw_cb, NULL);
+	ck_assert_uint_gt(synchronized_draw_calls, 0);
+
+	tsm_vte_input(vte, "\033[?2026l", 8);
+	ck_assert(!tsm_vte_get_synchronized_output(vte));
+
+	tsm_vte_input(vte, "\033[?2026h", 8);
+	ck_assert(tsm_vte_get_synchronized_output(vte));
+	tsm_vte_reset(vte);
+	ck_assert(!tsm_vte_get_synchronized_output(vte));
+
+	tsm_vte_unref(vte);
+	tsm_screen_unref(screen);
+}
+END_TEST
+
 /* Regression test for https://github.com/Aetf/libtsm/issues/26 */
 START_TEST(test_vte_decrqm_no_reset)
 {
@@ -637,6 +700,7 @@ TEST_DEFINE_CASE(misc)
 	TEST(test_vte_osc4)
 	TEST(test_vte_backspace_key)
 	TEST(test_vte_get_flags)
+	TEST(test_vte_synchronized_output)
 	TEST(test_vte_decrqm_no_reset)
 	TEST(test_vte_csi_cursor_up_down)
 TEST_END_CASE

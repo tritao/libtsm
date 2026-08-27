@@ -588,6 +588,7 @@ TSM_API int tsm_vte_set_custom_palette(struct tsm_vte *vte,
 TSM_API void tsm_vte_get_def_attr(struct tsm_vte *vte,
 					  struct tsm_screen_attr *out);
 TSM_API unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
+TSM_API bool tsm_vte_get_synchronized_output(struct tsm_vte *vte);
 
 TSM_API unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
 TSM_API unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte);

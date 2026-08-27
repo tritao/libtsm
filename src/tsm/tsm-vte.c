@@ -191,6 +191,7 @@ struct tsm_vte {
 	struct tsm_screen_attr def_attr;
 	struct tsm_screen_attr cattr;
 	unsigned int flags;
+	bool synchronized_output;
 
 	tsm_vte_charset **gl;
 	tsm_vte_charset **gr;
@@ -681,6 +682,15 @@ unsigned int tsm_vte_get_flags(struct tsm_vte *vte)
 }
 
 SHL_EXPORT
+bool tsm_vte_get_synchronized_output(struct tsm_vte *vte)
+{
+	if (!vte)
+		return false;
+
+	return vte->synchronized_output;
+}
+
+SHL_EXPORT
 unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte)
 {
 	if (!vte) {
@@ -873,6 +883,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->mouse_event = 0;
 	vte->mouse_last_col = 0;
 	vte->mouse_last_row = 0;
+	vte->synchronized_output = false;
 
 	memcpy(&vte->cattr, &vte->def_attr, sizeof(vte->cattr));
 	to_rgb(vte, &vte->cattr);
@@ -1832,6 +1843,9 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 			continue;
 		case TSM_VTE_BRACKETED_PASTE:
 			vte->bracketed_paste = set;
+			continue;
+		case 2026: /* DEC synchronized output */
+			vte->synchronized_output = set;
 			continue;
 		default:
 			llog_debug(vte, "unknown DEC %set-Mode %d",
