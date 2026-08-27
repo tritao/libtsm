@@ -336,8 +336,8 @@ TSM_API tsm_age_t tsm_screen_draw_since(struct tsm_screen *con,
 
 TSM_API const struct tsm_screen_cell *tsm_screen_draw2(struct tsm_screen *con);
 
-enum tsm_screen_cursor_style tsm_screen_get_cursor_style(struct tsm_screen *con);
-void tsm_screen_set_cursor_style(struct tsm_screen *con, enum tsm_screen_cursor_style type);
+TSM_API enum tsm_screen_cursor_style tsm_screen_get_cursor_style(struct tsm_screen *con);
+TSM_API void tsm_screen_set_cursor_style(struct tsm_screen *con, enum tsm_screen_cursor_style type);
 
 /** @} */
 

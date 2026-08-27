@@ -14,15 +14,20 @@ project(
     ],
 )
 
-add_project_arguments(
-    '-ffast-math',
-    '-fno-strict-aliasing',
-    '-ffunction-sections',
-    '-fdata-sections',
-    '-D_GNU_SOURCE',
-    '-D_POSIX_C_SOURCE=200809L',
-    language: 'c',
-)
+cc = meson.get_compiler('c')
+msvc_compatible = cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
+
+if not msvc_compatible
+    add_project_arguments(
+        '-ffast-math',
+        '-fno-strict-aliasing',
+        '-ffunction-sections',
+        '-fdata-sections',
+        '-D_GNU_SOURCE',
+        '-D_POSIX_C_SOURCE=200809L',
+        language: 'c',
+    )
+endif
 
 #
 # Optional xkbcommon dependency, otherwise use the provided xbkcommon-keysyms.h
@@ -41,7 +46,11 @@ config = configuration_data()
 config.set('BUILD_ENABLE_DEBUG', get_option('extra_debug'))
 config_h = configure_file(configuration: config, output: 'config.h')
 abs_config_h = meson.current_build_dir() / '@0@'.format('config.h')
-add_project_arguments('-include', abs_config_h, language: 'c')
+if msvc_compatible
+    add_project_arguments('/FI' + abs_config_h, language: 'c')
+else
+    add_project_arguments('-include', abs_config_h, language: 'c')
+endif
 
 subdir('external')
 subdir('src')
