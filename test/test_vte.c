@@ -548,11 +548,13 @@ START_TEST(test_vte_synchronized_output)
 }
 END_TEST
 
-START_TEST(test_vte_kitty_keyboard_probe_unsupported)
+START_TEST(test_vte_kitty_keyboard)
 {
 	struct tsm_screen *screen;
 	struct tsm_vte *vte;
-	const char expected[] = "\033[?60;1;6;9;15c";
+	const char expected_query[] = "\033[?0u\033[?60;1;6;9;15c";
+	const char expected_ctrl_c[] = "\033[99;5:1u";
+	const char expected_ctrl_up[] = "\033[1;5A";
 	int r;
 
 	r = tsm_screen_new(&screen, log_cb, NULL);
@@ -560,12 +562,38 @@ START_TEST(test_vte_kitty_keyboard_probe_unsupported)
 	r = tsm_vte_new(&vte, screen, storing_write_cb, NULL, NULL, NULL);
 	ck_assert_int_eq(r, 0);
 
-	/* Unsupported Kitty keyboard protocol is detected by the lack of a
-	 * keyboard-flags response; the adjacent DA query still gets answered. */
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 0);
 	storing_write_cb_reset();
 	tsm_vte_input(vte, "\033[?u\033[c", 7);
-	ck_assert_mem_eq(write_buffer, expected, sizeof(expected) - 1);
-	ck_assert_uint_eq(write_buffer_p - write_buffer, sizeof(expected) - 1);
+	ck_assert_mem_eq(write_buffer, expected_query, sizeof(expected_query) - 1);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, sizeof(expected_query) - 1);
+
+	/* Codex currently enables disambiguation, event types, and alternate
+	 * keys together (flags 7). */
+	tsm_vte_input(vte, "\033[>7u", 5);
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 7);
+	storing_write_cb_reset();
+	ck_assert(tsm_vte_handle_keyboard(vte, XKB_KEY_c, XKB_KEY_c,
+			TSM_CONTROL_MASK, TSM_VTE_INVALID));
+	ck_assert_mem_eq(write_buffer, expected_ctrl_c, sizeof(expected_ctrl_c) - 1);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, sizeof(expected_ctrl_c) - 1);
+
+	storing_write_cb_reset();
+	ck_assert(tsm_vte_handle_keyboard(vte, XKB_KEY_Up, XKB_KEY_NoSymbol,
+			TSM_CONTROL_MASK, TSM_VTE_INVALID));
+	ck_assert_mem_eq(write_buffer, expected_ctrl_up, sizeof(expected_ctrl_up) - 1);
+
+	/* Push/pop must restore the previous flags, including an empty stack. */
+	tsm_vte_input(vte, "\033[>15u\033[<u", 10);
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 7);
+	tsm_vte_input(vte, "\033[=1;3u", 8);
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 5);
+	tsm_vte_input(vte, "\033[=2;2u", 8);
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 7);
+	tsm_vte_input(vte, "\033[=4;3u", 8);
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 3);
+	tsm_vte_reset(vte);
+	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 0);
 
 	tsm_vte_unref(vte);
 	tsm_screen_unref(screen);
@@ -761,7 +789,7 @@ TEST_DEFINE_CASE(misc)
 	TEST(test_vte_backspace_key)
 	TEST(test_vte_get_flags)
 	TEST(test_vte_synchronized_output)
-	TEST(test_vte_kitty_keyboard_probe_unsupported)
+	TEST(test_vte_kitty_keyboard)
 	TEST(test_vte_decrqm_no_reset)
 	TEST(test_vte_csi_cursor_up_down)
 TEST_END_CASE

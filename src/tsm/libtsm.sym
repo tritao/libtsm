@@ -175,3 +175,8 @@ global:
 	tsm_vte_get_bracketed_paste;
 	tsm_vte_set_focus;
 } LIBTSM_4_8;
+
+LIBTSM_4_10 {
+global:
+	tsm_vte_get_keyboard_flags;
+} LIBTSM_4_9;

@@ -110,12 +110,23 @@ enum parser_action {
 #define CSI_PLUS	0x0100		/* CSI: + */
 #define CSI_POPEN	0x0200		/* CSI: ( */
 #define CSI_PCLOSE	0x0400		/* CSI: ) */
+#define CSI_EQUAL	0x0800		/* CSI: = */
+#define CSI_LESS	0x1000		/* CSI: < */
 
 /* max CSI arguments */
 #define CSI_ARG_MAX 16
 
 /* max length of an OSC code */
 #define OSC_MAX_LEN 128
+
+/* Kitty keyboard protocol flags. */
+#define KEYBOARD_FLAG_DISAMBIGUATE	0x01
+#define KEYBOARD_FLAG_EVENT_TYPES	0x02
+#define KEYBOARD_FLAG_ALTERNATE_KEYS	0x04
+#define KEYBOARD_FLAG_ALL_KEYS		0x08
+#define KEYBOARD_FLAG_ASSOCIATED_TEXT	0x10
+#define KEYBOARD_FLAG_MASK		0x1f
+#define KEYBOARD_STACK_MAX		16
 
 /* terminal flags */
 #define FLAG_CURSOR_KEY_MODE			0x00000001 /* DEC cursor key mode */
@@ -194,6 +205,9 @@ struct tsm_vte {
 	bool synchronized_output;
 	bool focus_reporting;
 	bool alternate_scroll;
+	unsigned int keyboard_flags;
+	unsigned int keyboard_stack_len[2];
+	unsigned int keyboard_stack[2][KEYBOARD_STACK_MAX];
 
 	tsm_vte_charset **gl;
 	tsm_vte_charset **gr;
@@ -720,6 +734,15 @@ bool tsm_vte_get_alternate_scroll(struct tsm_vte *vte)
 }
 
 SHL_EXPORT
+unsigned int tsm_vte_get_keyboard_flags(struct tsm_vte *vte)
+{
+	if (!vte)
+		return 0;
+
+	return vte->keyboard_flags;
+}
+
+SHL_EXPORT
 bool tsm_vte_get_bracketed_paste(struct tsm_vte *vte)
 {
 	if (!vte)
@@ -924,6 +947,9 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->synchronized_output = false;
 	vte->focus_reporting = false;
 	vte->alternate_scroll = false;
+	vte->keyboard_flags = 0;
+	vte->keyboard_stack_len[0] = 0;
+	vte->keyboard_stack_len[1] = 0;
 
 	memcpy(&vte->cattr, &vte->def_attr, sizeof(vte->cattr));
 	to_rgb(vte, &vte->cattr);
@@ -1082,6 +1108,12 @@ static void do_collect(struct tsm_vte *vte, uint32_t data)
 		break;
 	case '>':
 		vte->csi_flags |= CSI_GT;
+		break;
+	case '=':
+		vte->csi_flags |= CSI_EQUAL;
+		break;
+	case '<':
+		vte->csi_flags |= CSI_LESS;
 		break;
 	case ' ':
 		vte->csi_flags |= CSI_SPACE;
@@ -1952,14 +1984,75 @@ static void csi_report_window_size(struct tsm_vte *vte)
 
 static void csi_keyboard_enhancement(struct tsm_vte *vte)
 {
-	/* CSI ? u is the Kitty keyboard protocol query. The protocol is not
-	 * implemented yet; intentionally send no reply so applications can use
-	 * their normal fallback path. */
-	if ((vte->csi_flags & CSI_WHAT) && vte->csi_argc == 1 &&
-	    vte->csi_argv[0] == -1)
-		return;
+	unsigned int screen;
+	unsigned int flags;
+	unsigned int count;
+	unsigned int mode;
+	char response[32];
+	int len;
 
-	llog_debug(vte, "unhandled keyboard enhancement CSI sequence");
+	/* CSI ? u: query the currently active keyboard flags. */
+	if (vte->csi_flags == CSI_WHAT && vte->csi_argc == 1 &&
+	    vte->csi_argv[0] == -1) {
+		len = snprintf(response, sizeof(response), "\033[?%uu",
+				vte->keyboard_flags);
+		if (len > 0 && (size_t)len < sizeof(response))
+			vte_write(vte, response, (size_t)len);
+		return;
+	}
+
+	screen = !!(tsm_screen_get_flags(vte->con) & TSM_SCREEN_ALTERNATE);
+
+	/* CSI > Ps u: push the current flags and select Ps. */
+	if (vte->csi_flags == CSI_GT) {
+		flags = vte->csi_argc && vte->csi_argv[0] >= 0
+			? (unsigned int)vte->csi_argv[0] : 0;
+		flags &= KEYBOARD_FLAG_MASK;
+		if (vte->keyboard_stack_len[screen] == KEYBOARD_STACK_MAX) {
+			memmove(&vte->keyboard_stack[screen][0],
+				&vte->keyboard_stack[screen][1],
+				(KEYBOARD_STACK_MAX - 1) * sizeof(unsigned int));
+			--vte->keyboard_stack_len[screen];
+		}
+		vte->keyboard_stack[screen][vte->keyboard_stack_len[screen]++] =
+			vte->keyboard_flags;
+		vte->keyboard_flags = flags;
+		return;
+	}
+
+	/* CSI < Ps u: restore the last Ps pushed flag sets. */
+	if (vte->csi_flags == CSI_LESS) {
+		count = vte->csi_argc && vte->csi_argv[0] > 0
+			? (unsigned int)vte->csi_argv[0] : 1;
+		while (count-- && vte->keyboard_stack_len[screen])
+			vte->keyboard_flags =
+				vte->keyboard_stack[screen][--vte->keyboard_stack_len[screen]];
+		if (!vte->keyboard_stack_len[screen])
+			vte->keyboard_flags = 0;
+		return;
+	}
+
+	/* CSI = Ps ; mode u: set, add, or remove individual flags. */
+	if (vte->csi_flags == CSI_EQUAL && vte->csi_argc >= 1 &&
+	    vte->csi_argv[0] >= 0) {
+		flags = (unsigned int)vte->csi_argv[0] & KEYBOARD_FLAG_MASK;
+		mode = vte->csi_argc > 1 && vte->csi_argv[1] >= 0
+			? (unsigned int)vte->csi_argv[1] : 1;
+		switch (mode) {
+		case 1:
+			vte->keyboard_flags = flags;
+			break;
+		case 2:
+			vte->keyboard_flags |= flags;
+			break;
+		case 3:
+			vte->keyboard_flags &= ~flags;
+			break;
+		default:
+			llog_debug(vte, "invalid Kitty keyboard mode %u", mode);
+			break;
+		}
+	}
 }
 
 static void do_csi(struct tsm_vte *vte, uint32_t data)
@@ -3007,6 +3100,233 @@ static void vte_write_arrow(struct tsm_vte *vte, char direction, unsigned int mo
 	}
 }
 
+static unsigned int keyboard_modifier(unsigned int mods)
+{
+	unsigned int value = 1;
+
+	if (mods & TSM_SHIFT_MASK)
+		value |= 1;
+	if (mods & TSM_ALT_MASK)
+		value |= 2;
+	if (mods & TSM_CONTROL_MASK)
+		value |= 4;
+	if (mods & TSM_LOGO_MASK)
+		value |= 8;
+	/* TSM_LOCK_MASK represents the caps-lock modifier. */
+	if (mods & TSM_LOCK_MASK)
+		value |= 64;
+	return value;
+}
+
+static uint32_t keyboard_codepoint(uint32_t keysym, uint32_t unicode)
+{
+	if (keysym >= XKB_KEY_A && keysym <= XKB_KEY_Z)
+		return keysym + (XKB_KEY_a - XKB_KEY_A);
+	if (keysym >= XKB_KEY_a && keysym <= XKB_KEY_z)
+		return keysym;
+	if (keysym >= 0x20 && keysym <= 0x7e)
+		return keysym;
+	/* XKB's explicit Unicode keysyms use the 0x01000000 prefix. */
+	if ((keysym & 0xff000000u) == 0x01000000u)
+		return keysym & 0x00ffffffu;
+	if (unicode != TSM_VTE_INVALID && unicode <= 0x10ffff)
+		return unicode;
+	return 0;
+}
+
+static bool keyboard_write_csi_u(struct tsm_vte *vte, uint32_t key,
+				 uint32_t alternate, unsigned int mods,
+				 uint32_t unicode)
+{
+	char buffer[128];
+	char key_buffer[48];
+	unsigned int modifier;
+	int len;
+
+	if (!key)
+		return false;
+
+	modifier = keyboard_modifier(mods);
+	if ((vte->keyboard_flags & KEYBOARD_FLAG_ALTERNATE_KEYS) &&
+	    alternate && alternate != key)
+		snprintf(key_buffer, sizeof(key_buffer), "%u:%u", key, alternate);
+	else
+		snprintf(key_buffer, sizeof(key_buffer), "%u", key);
+
+	if (vte->keyboard_flags & KEYBOARD_FLAG_EVENT_TYPES) {
+		if ((vte->keyboard_flags & (KEYBOARD_FLAG_ALL_KEYS |
+						    KEYBOARD_FLAG_ASSOCIATED_TEXT)) ==
+			(KEYBOARD_FLAG_ALL_KEYS | KEYBOARD_FLAG_ASSOCIATED_TEXT) &&
+		    unicode != TSM_VTE_INVALID && unicode <= 0x10ffff)
+			len = snprintf(buffer, sizeof(buffer), "\033[%s;%u:1;%u%c",
+					key_buffer, modifier, unicode, 'u');
+		else
+			len = snprintf(buffer, sizeof(buffer), "\033[%s;%u:1%c",
+					key_buffer, modifier, 'u');
+	} else if ((vte->keyboard_flags & (KEYBOARD_FLAG_ALL_KEYS |
+						   KEYBOARD_FLAG_ASSOCIATED_TEXT)) ==
+		   (KEYBOARD_FLAG_ALL_KEYS | KEYBOARD_FLAG_ASSOCIATED_TEXT) &&
+		   unicode != TSM_VTE_INVALID && unicode <= 0x10ffff) {
+		len = snprintf(buffer, sizeof(buffer), "\033[%s;%u;%u%c",
+				key_buffer, modifier, unicode, 'u');
+	} else {
+		len = snprintf(buffer, sizeof(buffer), "\033[%s;%u%c",
+				key_buffer, modifier, 'u');
+	}
+	if (len <= 0 || (size_t)len >= sizeof(buffer))
+		return false;
+	vte_write_raw(vte, buffer, (size_t)len);
+	return true;
+}
+
+static bool keyboard_write_function(struct tsm_vte *vte, uint32_t keysym,
+					unsigned int mods)
+{
+	char final = 0;
+	unsigned int number = 0;
+	unsigned int modifier = keyboard_modifier(mods);
+	char buffer[32];
+	int len;
+
+	switch (keysym) {
+	case XKB_KEY_Up:
+	case XKB_KEY_KP_Up:
+		final = 'A'; number = 1; break;
+	case XKB_KEY_Down:
+	case XKB_KEY_KP_Down:
+		final = 'B'; number = 1; break;
+	case XKB_KEY_Right:
+	case XKB_KEY_KP_Right:
+		final = 'C'; number = 1; break;
+	case XKB_KEY_Left:
+	case XKB_KEY_KP_Left:
+		final = 'D'; number = 1; break;
+	case XKB_KEY_Home:
+	case XKB_KEY_KP_Home:
+		final = 'H'; number = 1; break;
+	case XKB_KEY_End:
+	case XKB_KEY_KP_End:
+		final = 'F'; number = 1; break;
+	case XKB_KEY_F1:
+	case XKB_KEY_KP_F1:
+		final = 'P'; number = 1; break;
+	case XKB_KEY_F2:
+	case XKB_KEY_KP_F2:
+		final = 'Q'; number = 1; break;
+	case XKB_KEY_F3:
+	case XKB_KEY_KP_F3:
+		final = 'R'; number = 1; break;
+	case XKB_KEY_F4:
+	case XKB_KEY_KP_F4:
+		final = 'S'; number = 1; break;
+	case XKB_KEY_Insert:
+	case XKB_KEY_KP_Insert:
+		number = 2; break;
+	case XKB_KEY_Delete:
+	case XKB_KEY_KP_Delete:
+	case XKB_KEY_KP_Decimal:
+		number = 3; break;
+	case XKB_KEY_Select:
+		number = 4; break;
+	case XKB_KEY_Page_Up:
+	case XKB_KEY_KP_Page_Up:
+		number = 5; break;
+	case XKB_KEY_Page_Down:
+	case XKB_KEY_KP_Page_Down:
+		number = 6; break;
+	case XKB_KEY_F5: number = 15; break;
+	case XKB_KEY_F6: number = 17; break;
+	case XKB_KEY_F7: number = 18; break;
+	case XKB_KEY_F8: number = 19; break;
+	case XKB_KEY_F9: number = 20; break;
+	case XKB_KEY_F10: number = 21; break;
+	case XKB_KEY_F11: number = 23; break;
+	case XKB_KEY_F12: number = 24; break;
+	default:
+		return false;
+	}
+
+	/* With no modifier, the normal VT sequence remains the most portable
+	 * representation unless the all-keys flag explicitly requests CSI-u
+	 * treatment for every key. */
+	if (modifier == 1 && !(vte->keyboard_flags &
+					(KEYBOARD_FLAG_ALL_KEYS | KEYBOARD_FLAG_DISAMBIGUATE)))
+		return false;
+	if (final)
+		len = snprintf(buffer, sizeof(buffer), "\033[%u;%u%c", number,
+				modifier, final);
+	else
+		len = snprintf(buffer, sizeof(buffer), "\033[%u;%u~", number,
+				modifier);
+	if (len <= 0 || (size_t)len >= sizeof(buffer))
+		return false;
+	vte_write_raw(vte, buffer, (size_t)len);
+	return true;
+}
+
+static bool keyboard_handle_enhanced(struct tsm_vte *vte, uint32_t keysym,
+					     uint32_t ascii, unsigned int mods,
+					     uint32_t unicode)
+{
+	uint32_t key;
+	uint32_t alternate;
+	bool all_keys;
+
+	if (!vte->keyboard_flags)
+		return false;
+
+	all_keys = !!(vte->keyboard_flags & KEYBOARD_FLAG_ALL_KEYS);
+
+	/* Functional keys retain their canonical Kitty escape forms. */
+	if (keyboard_write_function(vte, keysym, mods))
+		return true;
+
+	/* Enter, Tab, and Backspace stay legacy-compatible until all-keys is
+	 * enabled. The other non-text keys use CSI-u when disambiguation is on. */
+	switch (keysym) {
+	case XKB_KEY_BackSpace:
+	case XKB_KEY_KP_Enter:
+	case XKB_KEY_Return:
+	case XKB_KEY_Tab:
+	case XKB_KEY_KP_Tab:
+	case XKB_KEY_ISO_Left_Tab:
+		/* Enter, Tab, and Backspace deliberately retain their legacy
+		 * encodings until report-all-keys mode is requested. */
+		if (!all_keys)
+			return false;
+		/* fall through */
+	case XKB_KEY_Linefeed:
+	case XKB_KEY_Clear:
+	case XKB_KEY_Sys_Req:
+	case XKB_KEY_Escape:
+		if (!all_keys && !(vte->keyboard_flags & KEYBOARD_FLAG_DISAMBIGUATE))
+			return false;
+		key = keysym == XKB_KEY_BackSpace ? 127 :
+			(keysym == XKB_KEY_Tab || keysym == XKB_KEY_KP_Tab ||
+			 keysym == XKB_KEY_ISO_Left_Tab ? 9 :
+			 (keysym == XKB_KEY_Return || keysym == XKB_KEY_KP_Enter ? 13 :
+			  (keysym == XKB_KEY_Linefeed ? 10 :
+			   (keysym == XKB_KEY_Clear ? 12 :
+			    (keysym == XKB_KEY_Sys_Req ? 21 : 27)))));
+		return keyboard_write_csi_u(vte, key, 0, mods, unicode);
+	default:
+		break;
+	}
+
+	key = keyboard_codepoint(keysym, unicode);
+	if (!key)
+		return false;
+	alternate = keyboard_codepoint(ascii, TSM_VTE_INVALID);
+
+	/* Disambiguation applies to control/Alt combinations. Plain text remains
+	 * text input unless the all-keys flag was requested. */
+	if (!all_keys && !(mods & (TSM_CONTROL_MASK | TSM_ALT_MASK |
+					  TSM_LOGO_MASK)) &&
+	    !(mods & TSM_SHIFT_MASK && mods & TSM_ALT_MASK))
+		return false;
+	return keyboard_write_csi_u(vte, key, alternate, mods, unicode);
+}
+
 SHL_EXPORT
 bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 			     uint32_t ascii, unsigned int mods,
@@ -3018,6 +3338,12 @@ bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 
 	if (!vte) {
 		return false;
+	}
+
+	if (vte->keyboard_flags) {
+		vte->flags &= ~TSM_VTE_FLAG_PREPEND_ESCAPE;
+		if (keyboard_handle_enhanced(vte, keysym, ascii, mods, unicode))
+			return true;
 	}
 
 	/* MOD1 (mostly labeled 'Alt') prepends an escape character to every

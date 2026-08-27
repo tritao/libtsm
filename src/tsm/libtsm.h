@@ -389,6 +389,13 @@ enum tsm_vte_modifier {
 	TSM_LOGO_MASK		= (1 << 4),
 };
 
+/* Kitty keyboard protocol flags. They are enabled by CSI > Ps u. */
+#define TSM_VTE_KEYBOARD_DISAMBIGUATE       0x01
+#define TSM_VTE_KEYBOARD_EVENT_TYPES        0x02
+#define TSM_VTE_KEYBOARD_ALTERNATE_KEYS     0x04
+#define TSM_VTE_KEYBOARD_ALL_KEYS           0x08
+#define TSM_VTE_KEYBOARD_ASSOCIATED_TEXT    0x10
+
 /* keep in sync with TSM_INPUT_INVALID */
 #define TSM_VTE_INVALID 0xffffffff
 
@@ -593,6 +600,7 @@ TSM_API unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_synchronized_output(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_focus_reporting(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_alternate_scroll(struct tsm_vte *vte);
+TSM_API unsigned int tsm_vte_get_keyboard_flags(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_bracketed_paste(struct tsm_vte *vte);
 
 TSM_API unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
