@@ -313,6 +313,44 @@ START_TEST(test_mouse_pixels)
 }
 END_TEST
 
+START_TEST(test_mouse_alternate_scroll)
+{
+	int r;
+
+	/* Alternate Scroll has no effect on the main screen. */
+	tsm_vte_input(vte, "\e[?1007h", 8);
+	r = tsm_vte_handle_mouse(vte, 0, 0, 0, 0,
+					 TSM_MOUSE_BUTTON_WHEEL_UP,
+					 TSM_MOUSE_EVENT_PRESSED, 0);
+	ck_assert(!r);
+	ck_assert_int_eq(write_buffer[0], 0);
+
+	/* On the alternate screen, wheel events become cursor key input. */
+	tsm_vte_input(vte, "\e[?1049h", 8);
+	r = tsm_vte_handle_mouse(vte, 0, 0, 0, 0,
+					 TSM_MOUSE_BUTTON_WHEEL_UP,
+					 TSM_MOUSE_EVENT_PRESSED, 0);
+	ck_assert(r);
+	ck_assert_str_eq(write_buffer, "\e[A");
+
+	memset(&write_buffer, 0, sizeof(write_buffer));
+	r = tsm_vte_handle_mouse(vte, 0, 0, 0, 0,
+					 TSM_MOUSE_BUTTON_WHEEL_DOWN,
+					 TSM_MOUSE_EVENT_PRESSED, 0);
+	ck_assert(r);
+	ck_assert_str_eq(write_buffer, "\e[B");
+
+	/* DECCKM selects application cursor-key encoding. */
+	tsm_vte_input(vte, "\e[?1h", 5);
+	memset(&write_buffer, 0, sizeof(write_buffer));
+	r = tsm_vte_handle_mouse(vte, 0, 0, 0, 0,
+					 TSM_MOUSE_BUTTON_WHEEL_UP,
+					 TSM_MOUSE_EVENT_PRESSED, 0);
+	ck_assert(r);
+	ck_assert_str_eq(write_buffer, "\eOA");
+}
+END_TEST
+
 TEST_DEFINE_CASE(tests_x10)
 	CHECKED_FIXTURE(setup, teardown)
 	TEST(test_mouse_cb_x10)
@@ -324,6 +362,7 @@ TEST_DEFINE_CASE(tests_sgr)
 	TEST(test_mouse_cb_sgr)
 	TEST(test_mouse_sgr)
 	TEST(test_mouse_sgr_cell_change)
+	TEST(test_mouse_alternate_scroll)
 TEST_END_CASE
 
 TEST_DEFINE_CASE(tests_sgr_pixels)

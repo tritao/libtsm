@@ -449,6 +449,7 @@ enum tsm_vte_color {
 #define TSM_VTE_MOUSE_EVENT_ANY  1003 /* sends position on mouse click and mouse move */
 #define TSM_VTE_MOUSE_MODE_SGR   1006 /* modern mode that allows unlimited x and y coordinates */
 #define TSM_VTE_MOUSE_MODE_PIXEL 1016 /* sends pixel coordinates instead of cell coordinates */
+#define TSM_VTE_ALTERNATE_SCROLL 1007 /* send cursor keys for wheel events on the alternate screen */
 #define TSM_VTE_BRACKETED_PASTE  2004 /* enclose paste data with escape characters */
 
 enum tsm_mouse_track_mode {

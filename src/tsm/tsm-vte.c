@@ -193,6 +193,7 @@ struct tsm_vte {
 	unsigned int flags;
 	bool synchronized_output;
 	bool focus_reporting;
+	bool alternate_scroll;
 
 	tsm_vte_charset **gl;
 	tsm_vte_charset **gr;
@@ -886,6 +887,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->mouse_last_row = 0;
 	vte->synchronized_output = false;
 	vte->focus_reporting = false;
+	vte->alternate_scroll = false;
 
 	memcpy(&vte->cattr, &vte->def_attr, sizeof(vte->cattr));
 	to_rgb(vte, &vte->cattr);
@@ -1848,6 +1850,9 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 			continue;
 		case 1004: /* focus reporting */
 			vte->focus_reporting = set;
+			continue;
+		case TSM_VTE_ALTERNATE_SCROLL:
+			vte->alternate_scroll = set;
 			continue;
 		case 2026: /* DEC synchronized output */
 			vte->synchronized_output = set;
@@ -3445,6 +3450,19 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 	char buffer[24];
 	unsigned char reply_flags = 0;
 	bool pressed = event & TSM_MOUSE_EVENT_PRESSED;
+
+	/* Alternate Scroll mode turns wheel actions into application cursor keys
+	 * while the alternate screen is displayed. This is handled before mouse
+	 * reporting so applications such as less can use the mode without enabling
+	 * a mouse tracking mode. */
+	if ((event & TSM_MOUSE_EVENT_PRESSED) && vte->alternate_scroll &&
+	    (tsm_screen_get_flags(vte->con) & TSM_SCREEN_ALTERNATE) &&
+	    (button == TSM_MOUSE_BUTTON_WHEEL_UP ||
+	     button == TSM_MOUSE_BUTTON_WHEEL_DOWN)) {
+		vte_write_arrow(vte,
+				button == TSM_MOUSE_BUTTON_WHEEL_UP ? 'A' : 'B', 0);
+		return true;
+	}
 
 	/* drop move event if we don't wait for move events */
 	/* In mode 1002 (BTN), accept MOVED with button pressed (drag, button >= 32) */
