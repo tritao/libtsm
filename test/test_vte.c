@@ -378,6 +378,41 @@ START_TEST(test_vte_osc4)
 }
 END_TEST
 
+START_TEST(test_vte_focus_reporting)
+{
+	struct tsm_screen *screen;
+	struct tsm_vte *vte;
+	int r;
+
+	r = tsm_screen_new(&screen, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+	r = tsm_vte_new(&vte, screen, storing_write_cb, NULL, NULL, NULL);
+	ck_assert_int_eq(r, 0);
+
+	storing_write_cb_reset();
+	tsm_vte_set_focus(vte, true);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, 0);
+
+	tsm_vte_input(vte, "\033[?1004h", 8);
+	tsm_vte_set_focus(vte, true);
+	ck_assert_mem_eq(write_buffer, "\033[I", 3);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, 3);
+
+	storing_write_cb_reset();
+	tsm_vte_set_focus(vte, false);
+	ck_assert_mem_eq(write_buffer, "\033[O", 3);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, 3);
+
+	tsm_vte_input(vte, "\033[?1004l", 8);
+	storing_write_cb_reset();
+	tsm_vte_set_focus(vte, true);
+	ck_assert_uint_eq(write_buffer_p - write_buffer, 0);
+
+	tsm_vte_unref(vte);
+	tsm_screen_unref(screen);
+}
+END_TEST
+
 START_TEST(test_vte_backspace_key)
 {
 	struct tsm_screen *screen;
@@ -698,6 +733,7 @@ TEST_DEFINE_CASE(misc)
 	TEST(test_vte_custom_palette)
 	TEST(test_vte_osc_query)
 	TEST(test_vte_osc4)
+	TEST(test_vte_focus_reporting)
 	TEST(test_vte_backspace_key)
 	TEST(test_vte_get_flags)
 	TEST(test_vte_synchronized_output)

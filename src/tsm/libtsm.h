@@ -610,6 +610,8 @@ TSM_API void tsm_vte_input(struct tsm_vte *vte, const char *u8, size_t len);
  */
 TSM_API void tsm_vte_set_backspace_sends_delete(struct tsm_vte *vte,
 						bool enable);
+/** Report a focus change to the application when focus reporting is enabled. */
+TSM_API void tsm_vte_set_focus(struct tsm_vte *vte, bool focused);
 TSM_API bool tsm_vte_handle_keyboard(struct tsm_vte *vte, uint32_t keysym,
 			     uint32_t ascii, unsigned int mods,
 			     uint32_t unicode);

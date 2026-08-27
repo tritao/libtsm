@@ -192,6 +192,7 @@ struct tsm_vte {
 	struct tsm_screen_attr cattr;
 	unsigned int flags;
 	bool synchronized_output;
+	bool focus_reporting;
 
 	tsm_vte_charset **gl;
 	tsm_vte_charset **gr;
@@ -884,6 +885,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->mouse_last_col = 0;
 	vte->mouse_last_row = 0;
 	vte->synchronized_output = false;
+	vte->focus_reporting = false;
 
 	memcpy(&vte->cattr, &vte->def_attr, sizeof(vte->cattr));
 	to_rgb(vte, &vte->cattr);
@@ -1844,6 +1846,9 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 		case TSM_VTE_BRACKETED_PASTE:
 			vte->bracketed_paste = set;
 			continue;
+		case 1004: /* focus reporting */
+			vte->focus_reporting = set;
+			continue;
 		case 2026: /* DEC synchronized output */
 			vte->synchronized_output = set;
 			continue;
@@ -2791,6 +2796,18 @@ SHL_EXPORT
 void tsm_vte_set_backspace_sends_delete(struct tsm_vte *vte, bool enable)
 {
 	vte->backspace_sends_delete = enable;
+}
+
+SHL_EXPORT
+void tsm_vte_set_focus(struct tsm_vte *vte, bool focused)
+{
+	if (!vte || !vte->focus_reporting)
+		return;
+
+	if (focused)
+		vte_write(vte, "\033[I", 3);
+	else
+		vte_write(vte, "\033[O", 3);
 }
 
 /*
