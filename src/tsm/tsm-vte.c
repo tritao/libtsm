@@ -2288,6 +2288,85 @@ static void vte_write_xcolor(struct tsm_vte *vte, char *code,
 	vte_write(vte, buf, strlen(buf));
 }
 
+static int osc_hex_value(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+static bool osc_rgb_component(const char **cursor, uint8_t *value)
+{
+	const char *start = *cursor;
+	unsigned int digits = 0;
+	unsigned int parsed = 0;
+	int nibble;
+
+	while (digits < 4 && (nibble = osc_hex_value(*start)) >= 0) {
+		parsed = (parsed << 4) | (unsigned int)nibble;
+		++digits;
+		++start;
+	}
+	if (!digits || digits > 4)
+		return false;
+
+	/* OSC RGB components are 1-4 hexadecimal digits. Scale them to the
+	 * eight-bit representation used by the screen. */
+	if (digits == 1)
+		parsed *= 17;
+	else if (digits == 2)
+		parsed *= 1;
+	else if (digits == 3)
+		parsed = (parsed * 255 + 2047) / 4095;
+	else
+		parsed = (parsed * 255 + 32767) / 65535;
+	*value = (uint8_t)parsed;
+	*cursor = start;
+	return true;
+}
+
+static bool osc_rgb(const char **cursor, uint8_t *r, uint8_t *g,
+			    uint8_t *b)
+{
+	if (strncmp(*cursor, "rgb:", 4))
+		return false;
+	*cursor += 4;
+	if (!osc_rgb_component(cursor, r) || **cursor != '/')
+		return false;
+	++*cursor;
+	if (!osc_rgb_component(cursor, g) || **cursor != '/')
+		return false;
+	++*cursor;
+	return osc_rgb_component(cursor, b);
+}
+
+static bool vte_make_custom_palette(struct tsm_vte *vte)
+{
+	uint8_t (*palette)[3];
+	char *name;
+
+	if (vte->custom_palette_storage)
+		return true;
+	palette = malloc(sizeof(color_palette_legacy));
+	if (!palette)
+		return false;
+	memcpy(palette, vte->palette, sizeof(color_palette_legacy));
+	name = shl_strdup("custom");
+	if (!name) {
+		free(palette);
+		return false;
+	}
+	free(vte->palette_name);
+	vte->palette_name = name;
+	vte->custom_palette_storage = palette;
+	vte->palette = palette;
+	return true;
+}
+
 static void do_osc_4(struct tsm_vte *vte, const char *data, const char *end_seq)
 {
 	char buf[32];
@@ -2312,15 +2391,21 @@ static void do_osc_4(struct tsm_vte *vte, const char *data, const char *end_seq)
 			lookup_color(vte, code, &cr, &cg, &cb);
 			vte_write_xcolor(vte, buf, end_seq, cr, cg, cb);
 		} else {
-			// parsing of new rgb value to assign to code would go
-			// here. For now, skip past field contents.
-			while (*c && *c != ';') {
-				c++;
+			const char *value = c;
+			if (osc_rgb(&value, &cr, &cg, &cb) && code < 16 &&
+			    vte_make_custom_palette(vte)) {
+				vte->custom_palette_storage[code][0] = cr;
+				vte->custom_palette_storage[code][1] = cg;
+				vte->custom_palette_storage[code][2] = cb;
+				vte->palette = vte->custom_palette_storage;
 			}
+			c = value;
+			while (*c && *c != ';')
+				++c;
 		}
-		if (*c++ != ';') {
+		if (!*c)
 			break;
-		}
+		++c;
 	}
 }
 
