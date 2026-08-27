@@ -33,6 +33,13 @@ endif
 
 deps = [wcwidth_dep, shl_dep, xkbcommon_dep]
 
+if get_option('default_library') == 'static'
+    # Consumers of a static library must not import its symbols on MSVC.
+    libtsm_c_args = ['-DTSM_STATIC']
+else
+    libtsm_c_args = ['-DTSM_BUILDING_DLL']
+endif
+
 # Let Meson's default_library option select the linkage model. This keeps the
 # normal shared-library build while allowing embedders to use a static
 # fallback without carrying a second runtime library.
@@ -40,7 +47,7 @@ libtsm = library(
     'tsm',
     libtsm_srcs,
     dependencies: deps,
-    c_args: ['-DTSM_BUILDING_DLL'],
+    c_args: libtsm_c_args,
     install: true,
     version: version,
     soversion: major,
@@ -50,6 +57,7 @@ libtsm = library(
 libtsm_dep = declare_dependency(
     include_directories: '.',
     link_with: libtsm,
+    compile_args: libtsm_c_args,
 )
 
 install_headers('libtsm.h')
