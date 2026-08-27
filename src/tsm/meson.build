@@ -40,7 +40,6 @@ libtsm = shared_library(
 libtsm_dep = declare_dependency(
     include_directories: '.',
     link_with: libtsm,
-    dependencies: deps,
 )
 
 install_headers('libtsm.h')

@@ -12,5 +12,4 @@ shl = static_library('shl', shl_src, include_directories: shl_inc)
 shl_dep = declare_dependency(
     include_directories: shl_inc,
     link_with: shl,
-    sources: shl_src,
 )
