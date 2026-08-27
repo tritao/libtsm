@@ -643,6 +643,15 @@ int tsm_vte_set_palette(struct tsm_vte *vte, const char *palette_name)
 }
 
 SHL_EXPORT
+const char *tsm_vte_get_palette(struct tsm_vte *vte)
+{
+	if (!vte)
+		return NULL;
+
+	return vte->palette_name;
+}
+
+SHL_EXPORT
 int tsm_vte_set_custom_palette(struct tsm_vte *vte, uint8_t (*palette)[3])
 {
 	const size_t palette_byte_size = sizeof(color_palette_legacy);

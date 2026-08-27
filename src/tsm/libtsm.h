@@ -544,6 +544,7 @@ TSM_API void tsm_vte_set_led_cb(struct tsm_vte *vte, tsm_vte_led_cb led_cb,
  */
 TSM_API int tsm_vte_set_palette(struct tsm_vte *vte,
 					const char *palette_name);
+TSM_API const char *tsm_vte_get_palette(struct tsm_vte *vte);
 
 /**
  * @brief Set a custom palette on the vte object.

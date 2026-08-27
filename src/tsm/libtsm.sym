@@ -168,6 +168,7 @@ global:
 
 LIBTSM_4_9 {
 global:
+	tsm_vte_get_palette;
 	tsm_vte_get_synchronized_output;
 	tsm_vte_get_focus_reporting;
 	tsm_vte_get_alternate_scroll;
