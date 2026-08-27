@@ -12,15 +12,22 @@ libtsm_srcs = [
 version=meson.project_version()
 major=version.split('.')[0]
 
-# Export symbol with version
-link_flags = '-Wl,--version-script=' + meson.current_source_dir() + '/libtsm.sym'
-code = 'int main() { return 0; }'
 cc = meson.get_compiler('c')
 
-if not cc.links(code, args: link_flags, name: '-Wl,--version-script=...')
-    link_flags = [ '-export-symbols-regex=^tsm_' ]
-    if not cc.links(code, args: link_flags, name: '-Wl,--export-symbol-regex')
-        link_flags = []
+# Export symbols with a version script where the linker supports it.  MSVC
+# uses the __declspec(dllexport) annotations from libtsm.h instead; passing
+# the Unix fallback option to link.exe only produces a fatal warning under
+# /WX.
+link_flags = []
+if cc.get_id() != 'msvc' and cc.get_id() != 'clang-cl'
+    link_flags = '-Wl,--version-script=' + meson.current_source_dir() + '/libtsm.sym'
+    code = 'int main() { return 0; }'
+
+    if not cc.links(code, args: link_flags, name: '-Wl,--version-script=...')
+        link_flags = [ '-export-symbols-regex=^tsm_' ]
+        if not cc.links(code, args: link_flags, name: '-Wl,--export-symbol-regex')
+            link_flags = []
+        endif
     endif
 endif
 
