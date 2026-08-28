@@ -9,7 +9,7 @@ static int test_failures;
 
 void assertWidthIs(int expected_width, wchar_t c) {
 	tests_run++;
-        int actual_width = wcwidth(c);
+        int actual_width = tsm_wcwidth(c);
         if (actual_width != expected_width) {
                 fprintf(stderr, "ERROR: wcwidth(U+%04x) returned %d, expected %d\n", c, actual_width, expected_width);
 		test_failures++;
@@ -40,4 +40,3 @@ int main() {
 	printf("%d tests OK\n", tests_run);
 	return (test_failures == 0) ? 0 : 1;
 }
-

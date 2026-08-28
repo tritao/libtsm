@@ -333,7 +333,7 @@ unsigned int tsm_ucs4_get_width(uint32_t ucs4)
 {
 	int ret;
 
-	ret = wcwidth(ucs4);
+	ret = tsm_wcwidth(ucs4);
 	if (ret <= 0)
 		return 0;
 

@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-int wcwidth(wchar_t ucs);
+int tsm_wcwidth(wchar_t ucs);
 
 #ifdef __cplusplus
 }

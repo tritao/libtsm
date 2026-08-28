@@ -519,7 +519,7 @@ static bool intable(struct width_interval* table, int table_length, int c) {
         return false;
 }
 
-int wcwidth(wchar_t ucs) {
+int tsm_wcwidth(wchar_t ucs) {
 	// NOTE: created by hand, there isn't anything identifiable other than
 	// general Cf category code to identify these, and some characters in Cf
 	// category code are of non-zero width.
