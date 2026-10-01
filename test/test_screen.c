@@ -40,6 +40,43 @@ START_TEST(test_screen_init)
 }
 END_TEST
 
+static int collect_first_cell(struct tsm_screen *screen, uint64_t id,
+    const uint32_t *chars, size_t length, unsigned int width,
+    unsigned int x, unsigned int y, const struct tsm_screen_attr *attr,
+    tsm_age_t age, void *data)
+{
+    (void)screen; (void)id; (void)width; (void)attr; (void)age;
+    if (x == 0 && y == 0)
+        *(uint32_t *)data = length ? chars[0] : 0;
+    return 0;
+}
+
+START_TEST(test_screen_draw_scrollback)
+{
+    struct tsm_screen *screen;
+    struct tsm_screen_attr attr = {0};
+    uint32_t first = 0;
+    unsigned int position;
+    int r = tsm_screen_new(&screen, NULL, NULL);
+    ck_assert_int_eq(r, 0);
+    ck_assert_int_eq(tsm_screen_resize(screen, 3, 2), 0);
+    tsm_screen_set_max_sb(screen, 4);
+    tsm_screen_write(screen, 'A', &attr);
+    tsm_screen_newline(screen);
+    tsm_screen_newline(screen);
+    ck_assert_int_eq(tsm_screen_sb_get_line_count(screen), 1);
+    position = tsm_screen_sb_get_line_pos(screen);
+    tsm_screen_draw_scrollback(screen, 1, collect_first_cell, &first);
+    ck_assert_uint_eq(first, 'A');
+    ck_assert_uint_eq(tsm_screen_sb_get_line_pos(screen), position);
+    first = 0;
+    tsm_screen_draw_scrollback(screen, 0, collect_first_cell, &first);
+    ck_assert_uint_ne(first, 'A');
+    ck_assert_uint_eq(tsm_screen_sb_get_line_pos(screen), position);
+    tsm_screen_unref(screen);
+}
+END_TEST
+
 START_TEST(test_screen_null)
 {
     int r;
@@ -296,6 +333,7 @@ TEST_DEFINE_CASE(misc)
 	TEST(test_screen_null)
 	TEST(test_screen_resize_alt_colors)
 	TEST(test_screen_sb_get_line_pos)
+	TEST(test_screen_draw_scrollback)
 TEST_END_CASE
 
 TEST_DEFINE(

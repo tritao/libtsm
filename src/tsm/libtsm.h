@@ -327,6 +327,13 @@ TSM_API tsm_age_t tsm_screen_draw(struct tsm_screen *con,
 				  tsm_screen_draw_cb draw_cb,
 				  void *data);
 
+/* Draw a viewport at @scrollback lines from the active screen without
+ * changing the public scrollback position or screen age. */
+TSM_API tsm_age_t tsm_screen_draw_scrollback(struct tsm_screen *con,
+					      unsigned int scrollback,
+					      tsm_screen_draw_cb draw_cb,
+					      void *data);
+
 /* Draw only cells newer than @since. A zero age disables filtering and draws
  * the complete screen. The returned age follows tsm_screen_draw(). */
 TSM_API tsm_age_t tsm_screen_draw_since(struct tsm_screen *con,

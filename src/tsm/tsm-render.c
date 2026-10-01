@@ -207,6 +207,39 @@ tsm_age_t tsm_screen_draw(struct tsm_screen *con, tsm_screen_draw_cb draw_cb,
 }
 
 SHL_EXPORT
+tsm_age_t tsm_screen_draw_scrollback(struct tsm_screen *con,
+				      unsigned int scrollback,
+				      tsm_screen_draw_cb draw_cb, void *data)
+{
+	struct line *saved_pos, *pos = NULL;
+	unsigned int saved_pos_num, target_pos, i;
+	tsm_age_t age;
+
+	if (!con)
+		return 0;
+
+	if (scrollback > con->sb.count)
+		scrollback = con->sb.count;
+	saved_pos = con->sb.pos;
+	saved_pos_num = con->sb.pos_num;
+	if (scrollback) {
+		target_pos = con->sb.count - scrollback;
+		pos = shl_dlist_first(&con->sb.list, struct line, list);
+		for (i = 0; pos && i < target_pos; ++i)
+			pos = shl_dlist_next(pos, &con->sb.list, struct line, list);
+		con->sb.pos = pos;
+		con->sb.pos_num = target_pos;
+	} else {
+		con->sb.pos = NULL;
+		con->sb.pos_num = con->sb.count;
+	}
+	age = screen_draw(con, 0, false, draw_cb, data);
+	con->sb.pos = saved_pos;
+	con->sb.pos_num = saved_pos_num;
+	return age;
+}
+
+SHL_EXPORT
 tsm_age_t tsm_screen_draw_since(struct tsm_screen *con, tsm_age_t since,
 				 tsm_screen_draw_cb draw_cb, void *data)
 {
