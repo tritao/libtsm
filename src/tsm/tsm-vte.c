@@ -184,7 +184,8 @@ struct tsm_vte {
 
 	tsm_vte_mouse_cb mouse_cb;
 	void *mouse_data;
-	unsigned int mouse_mode;
+	unsigned int mouse_mode; /* encoding: zero means legacy */
+	unsigned int mouse_tracking;
 	unsigned int mouse_event;
 	unsigned int mouse_last_col;
 	unsigned int mouse_last_row;
@@ -758,7 +759,15 @@ unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte)
 		return 0;
 	}
 
-	return vte->mouse_mode;
+	return vte->mouse_mode ? vte->mouse_mode :
+		(vte->mouse_tracking == TSM_VTE_MOUSE_MODE_X10 ? TSM_VTE_MOUSE_MODE_X10 :
+		 vte->mouse_tracking ? TSM_VTE_MOUSE_MODE_VT200 : 0);
+}
+
+SHL_EXPORT
+unsigned int tsm_vte_get_mouse_tracking(struct tsm_vte *vte)
+{
+	return vte ? vte->mouse_tracking : 0;
 }
 
 SHL_EXPORT
@@ -941,6 +950,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->g3 = &tsm_vte_unicode_upper;
 
 	vte->mouse_mode = 0;
+	vte->mouse_tracking = 0;
 	vte->mouse_event = 0;
 	vte->mouse_last_col = 0;
 	vte->mouse_last_row = 0;
@@ -1785,15 +1795,6 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 		case 8: /* DECARM */
 			set_reset_flag(vte, set, TSM_VTE_FLAG_AUTO_REPEAT_MODE);
 			continue;
-		case TSM_VTE_MOUSE_MODE_X10:
-		case TSM_VTE_MOUSE_MODE_VT200:
-			vte->mouse_mode = set ? vte->csi_argv[i] : 0;
-			vte->mouse_event = TSM_VTE_MOUSE_EVENT_BTN;
-
-			if (vte->mouse_cb) {
-			    vte->mouse_cb(vte, vte->mouse_event, false, vte->mouse_data);
-			}
-			continue;
 		case 12: /* blinking cursor */
 			/* TODO: implement */
 			continue;
@@ -1877,41 +1878,30 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 						   vte->alt_cursor_y);
 			}
 			continue;
+		case TSM_VTE_MOUSE_MODE_X10:
+		case TSM_VTE_MOUSE_MODE_VT200:
 		case TSM_VTE_MOUSE_EVENT_BTN:
 		case TSM_VTE_MOUSE_EVENT_ANY:
-			if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_X10 || vte->mouse_mode == TSM_VTE_MOUSE_MODE_VT200) {
-			    vte->mouse_event = TSM_VTE_MOUSE_EVENT_BTN;
-			} else {
-			    vte->mouse_event = set ? vte->csi_argv[i] : 0;
-			}
-
-			if (vte->mouse_cb && vte->mouse_mode) {
-			    vte->mouse_cb(vte, vte->mouse_event, vte->mouse_mode == TSM_VTE_MOUSE_MODE_PIXEL, vte->mouse_data);
-			}
+			if (set)
+				vte->mouse_tracking = vte->csi_argv[i];
+			else if (vte->mouse_tracking == (unsigned int)vte->csi_argv[i])
+				vte->mouse_tracking = 0;
+			vte->mouse_event = !vte->mouse_tracking ? 0 :
+				vte->mouse_tracking == TSM_VTE_MOUSE_EVENT_ANY ?
+				TSM_VTE_MOUSE_EVENT_ANY : TSM_VTE_MOUSE_EVENT_BTN;
+			if (vte->mouse_cb)
+				vte->mouse_cb(vte, vte->mouse_event,
+					vte->mouse_mode == TSM_VTE_MOUSE_MODE_PIXEL, vte->mouse_data);
 			continue;
 		case TSM_VTE_MOUSE_MODE_SGR:
-			vte->mouse_mode = set ? vte->csi_argv[i] : 0;
-
-			if (!vte->mouse_cb) {
-			    continue;
-			}
-
-			if (!set || vte->mouse_event) {
-			    vte->mouse_cb(vte, vte->mouse_event, false, vte->mouse_data);
-			    continue;
-			}
-			continue;
 		case TSM_VTE_MOUSE_MODE_PIXEL:
-			vte->mouse_mode = set ? vte->csi_argv[i] : 0;
-
-			if (!vte->mouse_cb) {
-			    continue;
-			}
-
-			if (!set || vte->mouse_event) {
-			    vte->mouse_cb(vte, vte->mouse_event, set, vte->mouse_data);
-			    continue;
-			}
+			if (set)
+				vte->mouse_mode = vte->csi_argv[i];
+			else if (vte->mouse_mode == (unsigned int)vte->csi_argv[i])
+				vte->mouse_mode = 0;
+			if (vte->mouse_cb && vte->mouse_tracking)
+				vte->mouse_cb(vte, vte->mouse_event,
+					vte->mouse_mode == TSM_VTE_MOUSE_MODE_PIXEL, vte->mouse_data);
 			continue;
 		case TSM_VTE_BRACKETED_PASTE:
 			vte->bracketed_paste = set;
@@ -3912,12 +3902,14 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 	char buffer[24];
 	unsigned char reply_flags = 0;
 	bool pressed = event & TSM_MOUSE_EVENT_PRESSED;
+	if (!vte)
+		return false;
 
 	/* Alternate Scroll mode turns wheel actions into application cursor keys
 	 * while the alternate screen is displayed. This is handled before mouse
 	 * reporting so applications such as less can use the mode without enabling
 	 * a mouse tracking mode. */
-	if ((event & TSM_MOUSE_EVENT_PRESSED) && vte->alternate_scroll &&
+	if (!vte->mouse_tracking && (event & TSM_MOUSE_EVENT_PRESSED) && vte->alternate_scroll &&
 	    (tsm_screen_get_flags(vte->con) & TSM_SCREEN_ALTERNATE) &&
 	    (button == TSM_MOUSE_BUTTON_WHEEL_UP ||
 	     button == TSM_MOUSE_BUTTON_WHEEL_DOWN)) {
@@ -3926,11 +3918,18 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 		return true;
 	}
 
+	if (!vte->mouse_tracking)
+		return false;
+	unsigned int encoding = tsm_vte_get_mouse_mode(vte);
+	if (vte->mouse_tracking == TSM_VTE_MOUSE_MODE_X10 &&
+	    (event & TSM_MOUSE_EVENT_RELEASED))
+		return false;
+
 	/* drop move event if we don't wait for move events */
 	/* In mode 1002 (BTN), accept MOVED with button pressed (drag, button >= 32) */
 	/* In mode 1003 (ANY), accept all MOVED events */
 	bool is_drag = (button >= 32 && button <= 34);
-	if ((vte->mouse_mode == TSM_VTE_MOUSE_MODE_X10 || vte->mouse_mode == TSM_VTE_MOUSE_MODE_VT200 ||
+	if ((vte->mouse_tracking == TSM_VTE_MOUSE_MODE_X10 || vte->mouse_tracking == TSM_VTE_MOUSE_MODE_VT200 ||
 	     (vte->mouse_event == TSM_VTE_MOUSE_EVENT_BTN && !is_drag) ||
 	     (vte->mouse_event != TSM_VTE_MOUSE_EVENT_BTN && vte->mouse_event != TSM_VTE_MOUSE_EVENT_ANY)) &&
 	    (event & TSM_MOUSE_EVENT_MOVED)) {
@@ -3943,7 +3942,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 		button = 65;
 	}
 
-	if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_SGR || vte->mouse_mode == TSM_VTE_MOUSE_MODE_PIXEL) {
+	if (encoding == TSM_VTE_MOUSE_MODE_SGR || encoding == TSM_VTE_MOUSE_MODE_PIXEL) {
 		/* internally we use zero indexing but the xterm spec requires the
 		 * top left cell to have the coordinates 1,1 */
 		cell_x++;
@@ -3952,8 +3951,8 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 		reply_flags = button | modifiers;
 	}
 
-	if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_X10 || vte->mouse_mode == TSM_VTE_MOUSE_MODE_VT200) {
-		if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_X10 && (event & TSM_MOUSE_EVENT_RELEASED))
+	if (encoding == TSM_VTE_MOUSE_MODE_X10 || encoding == TSM_VTE_MOUSE_MODE_VT200) {
+		if (encoding == TSM_VTE_MOUSE_MODE_X10 && (event & TSM_MOUSE_EVENT_RELEASED))
 			return false;
 
 		/* + 0x20 to start in the range of visible characters
@@ -3975,7 +3974,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 			button = 3;
 		}
 
-		if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_X10)
+		if (encoding == TSM_VTE_MOUSE_MODE_X10)
 			modifiers = 0;
 
 		reply_flags = (button | modifiers) + 0x20;
@@ -3983,7 +3982,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 
 		vte_write(vte, buffer, strlen(buffer));
 		return true;
-	} else if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_SGR) {
+	} else if (encoding == TSM_VTE_MOUSE_MODE_SGR) {
 		if (event & TSM_MOUSE_EVENT_MOVED) {
 			if (cell_x == vte->mouse_last_col && cell_y == vte->mouse_last_row) {
 				return false;
@@ -3992,7 +3991,7 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 			/* For drags (button >= 32), use actual button value from reply_flags.
 			 * For hover motion (button < 32, only in mode ANY), use 35 (move marker). */
 			if (button < 32) {
-				reply_flags = 35;
+				reply_flags = 35 | modifiers;
 			}
 			/* else: reply_flags already set to button | modifiers for drags */
 			pressed = true;
@@ -4005,12 +4004,12 @@ bool tsm_vte_handle_mouse(struct tsm_vte *vte, unsigned int cell_x,
 
 		vte_write(vte, buffer, strlen(buffer));
 		return true;
-	} else if (vte->mouse_mode == TSM_VTE_MOUSE_MODE_PIXEL) {
+	} else if (encoding == TSM_VTE_MOUSE_MODE_PIXEL) {
 		if (event == TSM_MOUSE_EVENT_MOVED) {
 			/* For drags (button >= 32), use actual button value from reply_flags.
 			 * For hover motion (button < 32, only in mode ANY), use 35 (move marker). */
 			if (button < 32) {
-				reply_flags = 35;
+				reply_flags = 35 | modifiers;
 			}
 			/* else: reply_flags already set to button | modifiers for drags */
 			pressed = true;

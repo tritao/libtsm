@@ -611,6 +611,8 @@ TSM_API unsigned int tsm_vte_get_keyboard_flags(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_bracketed_paste(struct tsm_vte *vte);
 
 TSM_API unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
+/** Active tracking request (9/1000/1002/1003), independent of encoding. */
+TSM_API unsigned int tsm_vte_get_mouse_tracking(struct tsm_vte *vte);
 TSM_API unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte);
 
 TSM_API void tsm_vte_reset(struct tsm_vte *vte);
