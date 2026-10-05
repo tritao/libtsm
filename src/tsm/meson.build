@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 
-libtsm_srcs = [
+libtsm_srcs = files(
     'tsm-render.c',
     'tsm-screen.c',
     'tsm-selection.c',
     'tsm-unicode.c',
     'tsm-vte-charsets.c',
     'tsm-vte.c',
-]
+)
 
 version=meson.project_version()
 major=version.split('.')[0]
