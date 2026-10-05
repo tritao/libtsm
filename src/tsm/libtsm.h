@@ -321,6 +321,11 @@ TSM_API void tsm_screen_selection_target(struct tsm_screen *con,
 TSM_API void tsm_screen_selection_word(struct tsm_screen *con,
 			       unsigned int posx,
 			       unsigned int posy);
+/** Copy UTF-8 into caller storage without a terminator. Returns 0 on success,
+ * 1 when storage is missing/too small (written reports required bytes), or a
+ * negative errno. Insufficient storage is never modified. No allocation. */
+TSM_API int tsm_screen_selection_copy_into(struct tsm_screen *con, char *buffer,
+                                         size_t capacity, size_t *written);
 TSM_API int tsm_screen_selection_copy(struct tsm_screen *con, char **out);
 
 TSM_API tsm_age_t tsm_screen_draw(struct tsm_screen *con,

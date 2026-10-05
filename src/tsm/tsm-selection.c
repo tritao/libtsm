@@ -52,6 +52,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,17 +72,20 @@ static void selection_set(struct tsm_screen *con, struct selection_pos *sel,
 
 	if (!con->sb.pos) {
 		sel->line = con->lines[y];
-		return;
-	}
-	if (con->sb.pos_num + y >= con->sb.count) {
+	} else if (con->sb.pos_num + y >= con->sb.count) {
 		y -= con->sb.count - con->sb.pos_num;
 		sel->line = con->lines[y];
-		return;
+	} else {
+		line = con->sb.pos;
+		while (y--)
+			line = shl_dlist_next(line, &con->sb.list, struct line, list);
+		sel->line = line;
 	}
-	line = con->sb.pos;
-	while (y--)
-		line = shl_dlist_next(line, &con->sb.list, struct line, list);
-	sel->line = line;
+	/* A wide continuation belongs to the preceding glyph, including when it
+	 * is the only selected cell or the start of a reversed selection. */
+	while (sel->x > 0 && sel->x < sel->line->size &&
+	       !sel->line->cells[sel->x].width)
+		--sel->x;
 }
 
 static void word_select(struct tsm_screen *con,
@@ -154,41 +158,40 @@ static unsigned int calc_line_len(struct line *line)
 	return 0;
 }
 
-static unsigned int copy_line(struct tsm_screen *con, struct line *line, char *buf)
+static int copy_line(struct tsm_screen *con, struct line *line,
+		     const struct selection_pos *first,
+		     const struct selection_pos *last, char *buf, size_t capacity)
 {
 	unsigned int i, start, end;
-	char *pos = buf;
-	int line_len;
-
-	line_len = calc_line_len(line);
-	start = (con->sel_start.line == line) ? con->sel_start.x : 0;
-	end = (con->sel_end.line == line) ? con->sel_end.x + 1 : con->size_x;
-
+	int pos = 0;
+	unsigned int line_len = calc_line_len(line);
+	start = first->line == line ? first->x : 0;
+	end = last->line == line ? last->x + 1 : con->size_x;
 	if (start > line_len)
 		return 0;
-
 	if (end > line_len)
 		end = line_len;
-
-	for (i = start; i < end; i++) {
+	for (i = start; i < end; ++i) {
 		tsm_symbol_t symbol = line->cells[i].ch;
 		const uint32_t *codepoints;
-		size_t length, j;
-
-		/* Wide continuation cells are part of the preceding symbol. */
+		uint32_t space = ' ';
+		size_t length = 1, j;
 		if (!line->cells[i].width)
 			continue;
-		if (!symbol) {
-			pos += tsm_ucs4_to_utf8(' ', pos);
-			continue;
+		codepoints = symbol ? tsm_symbol_get(con->sym_table, &symbol, &length) : &space;
+		for (j = 0; j < length; ++j) {
+			char encoded[4];
+			size_t bytes = tsm_ucs4_to_utf8(codepoints[j], encoded);
+			if (bytes > (size_t)(INT_MAX - pos))
+				return -EOVERFLOW;
+			if (buf) memcpy(buf + pos, encoded, bytes);
+			pos += (int)bytes;
 		}
-
-		codepoints = tsm_symbol_get(con->sym_table, &symbol, &length);
-		for (j = 0; j < length; ++j)
-			pos += tsm_ucs4_to_utf8(codepoints[j], pos);
 	}
-	pos += tsm_ucs4_to_utf8('\n', pos);
-	return pos - buf;
+	if (pos == INT_MAX)
+		return -EOVERFLOW;
+	if (buf && (size_t)pos < capacity) buf[pos] = '\n';
+	return pos + 1;
 }
 
 /*
@@ -385,37 +388,17 @@ static struct line *get_next_line(struct tsm_screen *con, struct line *line, uns
 	return NULL;
 }
 
-static int selection_count_lines(struct tsm_screen *con, struct selection_pos *start, struct selection_pos *end)
-{
-	int count = 1;
-	unsigned int index = get_line_index(con, start->line);
-	struct line *iter;
-
-	iter = start->line;
-	while (iter && iter != end->line) {
-		count++;
-		iter = get_next_line(con, iter, &index);
-	}
-	return count;
-}
-
-/*
- * Calculate the maximum needed space for the number of lines given
- */
-static unsigned int calc_line_copy_buffer(struct tsm_screen *con, unsigned int num_lines)
-{
-	// 4 is the max size of a Unicode character
-	return con->size_x * num_lines * 4 + 1;
-}
-
-static int copy_lines(struct tsm_screen *con, struct selection_pos *start, struct selection_pos *end, char *buf, int pos)
+static int selection_size(struct tsm_screen *con, struct selection_pos *start,
+                      struct selection_pos *end)
 {
 	unsigned int index = get_line_index(con, start->line);
-	struct line *iter;
-
-	iter = start->line;
+	struct line *iter = start->line;
+	int pos = 0;
 	while (iter) {
-		pos += copy_line(con, iter, &(buf[pos]));
+		int bytes = copy_line(con, iter, start, end, NULL, 0);
+		if (bytes < 0 || bytes > INT_MAX - pos)
+			return -EOVERFLOW;
+		pos += bytes;
 		if (iter == end->line)
 			break;
 		iter = get_next_line(con, iter, &index);
@@ -424,50 +407,64 @@ static int copy_lines(struct tsm_screen *con, struct selection_pos *start, struc
 }
 
 SHL_EXPORT
+int tsm_screen_selection_copy_into(struct tsm_screen *con, char *buffer,
+                                  size_t capacity, size_t *written)
+{
+	struct selection_pos start, end;
+	int bytes;
+	if (!con || !written)
+		return -EINVAL;
+	*written = 0;
+	if (!con->sel_active)
+		return -ENOENT;
+	start = con->sel_start;
+	end = con->sel_end;
+	if (!start.line && !end.line)
+		return 0;
+	if (!start.line) {
+		start.line = !shl_dlist_empty(&con->sb.list) ?
+			shl_dlist_first(&con->sb.list, struct line, list) : con->lines[0];
+		start.x = 0;
+	}
+	bytes = selection_size(con, &start, &end);
+	if (bytes < 0)
+		return bytes;
+	/* selection_size includes the final newline. The caller receives text only. */
+	*written = bytes > 0 ? (size_t)bytes - 1 : 0;
+	if (!buffer || capacity < *written)
+		return *written ? 1 : 0;
+	/* Keep the final newline out of caller storage, including exact-size buffers. */
+	unsigned int index = get_line_index(con, start.line);
+	struct line *iter = start.line;
+	size_t pos = 0;
+	while (iter) {
+		int count = copy_line(con, iter, &start, &end, NULL, 0);
+		if (count > 0) {
+			/* Each line emits a newline; encode its text separately. */
+			char *target = buffer + pos;
+			int copied = copy_line(con, iter, &start, &end, target, *written - pos);
+			pos += (size_t)copied;
+		}
+		if (iter == end.line) break;
+		iter = get_next_line(con, iter, &index);
+	}
+	return 0;
+}
+
+SHL_EXPORT
 int tsm_screen_selection_copy(struct tsm_screen *con, char **out)
 {
-	struct selection_pos *start = &con->sel_start;
-	struct selection_pos *end = &con->sel_end;
-	int buf_size = 0;
-	int pos = 0;
-	int total_lines;
-
-	if (!con || !out) {
-		return -EINVAL;
-	}
-
-	if (!con->sel_active) {
-		return -ENOENT;
-	}
-
-	/* invalid selection */
-	if (start->line == NULL && end->line == NULL) {
-		*out = shl_strdup("");
-		return 0;
-	}
-
-	if (start->line == NULL) {
-		if (!shl_dlist_empty(&con->sb.list))
-			start->line = shl_dlist_first(&con->sb.list, struct line, list);
-		else
-			start->line = con->lines[0];
-		start->x = 0;
-	}
-
-	total_lines =  selection_count_lines(con, start, end);
-	buf_size = calc_line_copy_buffer(con, total_lines);
-
-	*out = calloc(buf_size, 1);
-	if (!*out) {
-		return -ENOMEM;
-	}
-
-	pos = copy_lines(con, start, end, *out, pos);
-
-	/* remove last line break */
-	if (pos > 0) {
-		(*out)[--pos] = '\0';
-	}
-
-	return pos;
+	size_t length;
+	int status;
+	if (!out) return -EINVAL;
+	*out = NULL;
+	status = tsm_screen_selection_copy_into(con, NULL, 0, &length);
+	if (status < 0) return status;
+	char *text = malloc(length + 1);
+	if (!text) return -ENOMEM;
+	status = tsm_screen_selection_copy_into(con, text, length + 1, &length);
+	if (status != 0) { free(text); return status < 0 ? status : -EOVERFLOW; }
+	text[length] = 0;
+	*out = text;
+	return (int)length;
 }

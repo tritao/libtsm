@@ -98,6 +98,7 @@ global:
 	tsm_screen_selection_start;
 	tsm_screen_selection_target;
 	tsm_screen_selection_copy;
+	tsm_screen_selection_copy_into;
 
 	tsm_vte_new;
 	tsm_vte_ref;

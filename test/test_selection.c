@@ -812,7 +812,7 @@ static void check_sb_pos(struct tsm_screen *screen)
 
 	while (line && line != screen->sb.pos) {
 		count++;
-		line = shl_dlist_next(line, &screen->sb.list, list);
+		line = shl_dlist_next(line, &screen->sb.list, struct line, list);
 	}
 
 	ck_assert_int_eq(count, screen->sb.pos_num);
@@ -888,7 +888,60 @@ START_TEST(test_screen_robustness)
 }
 END_TEST
 
+static void selection_write_cb(struct tsm_vte *vte, const char *bytes,
+                               size_t length, void *data)
+{
+	(void)vte; (void)bytes; (void)length; (void)data;
+}
+
+START_TEST(test_selection_combining_caller_buffer)
+{
+	struct tsm_screen *screen;
+	struct tsm_vte *vte;
+	char input[19], buffer[21], *owned = NULL;
+	size_t written = 0;
+	ck_assert_int_eq(tsm_screen_new(&screen, NULL, NULL), 0);
+	ck_assert_int_eq(tsm_screen_resize(screen, 2, 2), 0);
+	ck_assert_int_eq(tsm_vte_new(&vte, screen, selection_write_cb, NULL, NULL, NULL), 0);
+	input[0] = 'A';
+	for (unsigned int i = 1; i < sizeof(input); i += 2) {
+		input[i] = (char)0xcc;
+		input[i + 1] = (char)0x81;
+	}
+	tsm_vte_input(vte, input, sizeof(input));
+	tsm_screen_selection_start(screen, 0, 0);
+	tsm_screen_selection_target(screen, 0, 0);
+	ck_assert_int_eq(tsm_screen_selection_copy_into(screen, NULL, 0, &written), 1);
+	ck_assert_int_eq(written, sizeof(input));
+	memset(buffer, '!', sizeof(buffer));
+	ck_assert_int_eq(tsm_screen_selection_copy_into(screen, buffer + 1, 18, &written), 1);
+	for (unsigned int i = 0; i < sizeof(buffer); ++i) ck_assert_int_eq(buffer[i], '!');
+	ck_assert_int_eq(tsm_screen_selection_copy_into(screen, buffer + 1, 19, &written), 0);
+	ck_assert_int_eq(buffer[0], '!');
+	ck_assert_int_eq(buffer[20], '!');
+	ck_assert_int_eq(memcmp(buffer + 1, input, sizeof(input)), 0);
+	ck_assert_int_eq(tsm_screen_selection_copy(screen, &owned), sizeof(input));
+	ck_assert_int_eq(memcmp(owned, input, sizeof(input)), 0);
+	ck_assert_int_eq(owned[19], 0);
+	free(owned);
+	tsm_screen_selection_reset(screen);
+	ck_assert_int_eq(tsm_screen_selection_copy_into(screen, buffer, sizeof(buffer), &written), -ENOENT);
+	ck_assert_int_eq(tsm_screen_selection_copy(NULL, &owned), -EINVAL);
+	const char *wide = "\033[2J\033[H日";
+	tsm_vte_input(vte, wide, strlen(wide));
+	/* Select only a continuation cell; its complete glyph must be copied. */
+	tsm_screen_selection_start(screen, 1, 0);
+	tsm_screen_selection_target(screen, 1, 0);
+	ck_assert_int_eq(tsm_screen_selection_copy_into(screen, buffer, sizeof(buffer), &written), 0);
+	ck_assert_int_eq(written, strlen("日"));
+	ck_assert_int_eq(memcmp(buffer, "日", written), 0);
+	tsm_vte_unref(vte);
+	tsm_screen_unref(screen);
+}
+END_TEST
+
 TEST_DEFINE_CASE(misc)
+	TEST(test_selection_combining_caller_buffer)
 	TEST(test_screen_copy_incomplete)
 	TEST(test_screen_copy_one_cell)
 	TEST(test_screen_copy_line)

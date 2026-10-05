@@ -244,7 +244,7 @@ START_TEST(test_vte_combining_marks)
 	tsm_screen_selection_target(screen, 0, 0);
 	r = tsm_screen_selection_copy(screen, &selection);
 	ck_assert_int_gt(r, 0);
-	ck_assert_str_eq(selection, "e\xcc\x81\n");
+	ck_assert_str_eq(selection, "e\xcc\x81");
 	free(selection);
 
 	tsm_vte_unref(vte);
@@ -586,7 +586,7 @@ START_TEST(test_vte_kitty_keyboard)
 	/* Push/pop must restore the previous flags, including an empty stack. */
 	tsm_vte_input(vte, "\033[>15u\033[<u", 10);
 	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 7);
-	tsm_vte_input(vte, "\033[=1;3u", 8);
+	tsm_vte_input(vte, "\033[=2;3u", 8);
 	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 5);
 	tsm_vte_input(vte, "\033[=2;2u", 8);
 	ck_assert_uint_eq(tsm_vte_get_keyboard_flags(vte), 7);
