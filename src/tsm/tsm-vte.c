@@ -206,6 +206,7 @@ struct tsm_vte {
 	bool synchronized_output;
 	bool focus_reporting;
 	bool alternate_scroll;
+	bool win32_input_mode;
 	unsigned int keyboard_flags;
 	unsigned int keyboard_stack_len[2];
 	unsigned int keyboard_stack[2][KEYBOARD_STACK_MAX];
@@ -726,6 +727,15 @@ bool tsm_vte_get_focus_reporting(struct tsm_vte *vte)
 }
 
 SHL_EXPORT
+bool tsm_vte_get_win32_input_mode(struct tsm_vte *vte)
+{
+	if (!vte)
+		return false;
+
+	return vte->win32_input_mode;
+}
+
+SHL_EXPORT
 bool tsm_vte_get_alternate_scroll(struct tsm_vte *vte)
 {
 	if (!vte)
@@ -957,6 +967,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->synchronized_output = false;
 	vte->focus_reporting = false;
 	vte->alternate_scroll = false;
+	vte->win32_input_mode = false;
 	vte->keyboard_flags = 0;
 	vte->keyboard_stack_len[0] = 0;
 	vte->keyboard_stack_len[1] = 0;
@@ -1914,6 +1925,9 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 			continue;
 		case 2026: /* DEC synchronized output */
 			vte->synchronized_output = set;
+			continue;
+		case 9001: /* win32-input-mode: the host wants keys as Win32 key events */
+			vte->win32_input_mode = set;
 			continue;
 		default:
 			llog_debug(vte, "unknown DEC %set-Mode %d",

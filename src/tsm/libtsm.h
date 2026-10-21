@@ -612,6 +612,12 @@ TSM_API unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_synchronized_output(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_focus_reporting(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_alternate_scroll(struct tsm_vte *vte);
+/**
+ * Whether the application requested win32-input-mode (DECSET 9001), as the
+ * Windows pseudoconsole does. libtsm only tracks the request; a host that
+ * honors it encodes input as `CSI Vk;Sc;Uc;Kd;Cs;Rc _` key events itself.
+ */
+TSM_API bool tsm_vte_get_win32_input_mode(struct tsm_vte *vte);
 TSM_API unsigned int tsm_vte_get_keyboard_flags(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_bracketed_paste(struct tsm_vte *vte);
 

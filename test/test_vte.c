@@ -378,6 +378,32 @@ START_TEST(test_vte_osc4)
 }
 END_TEST
 
+START_TEST(test_vte_win32_input_mode)
+{
+	struct tsm_screen *screen;
+	struct tsm_vte *vte;
+	int r;
+
+	r = tsm_screen_new(&screen, log_cb, NULL);
+	ck_assert_int_eq(r, 0);
+	r = tsm_vte_new(&vte, screen, storing_write_cb, NULL, NULL, NULL);
+	ck_assert_int_eq(r, 0);
+
+	ck_assert(!tsm_vte_get_win32_input_mode(vte));
+	tsm_vte_input(vte, "[?9001h", 9);
+	ck_assert(tsm_vte_get_win32_input_mode(vte));
+	tsm_vte_input(vte, "[?9001l", 9);
+	ck_assert(!tsm_vte_get_win32_input_mode(vte));
+
+	/* A full reset forgets the request, like every other DEC mode. */
+	tsm_vte_input(vte, "[?9001hc", 11);
+	ck_assert(!tsm_vte_get_win32_input_mode(vte));
+
+	tsm_vte_unref(vte);
+	tsm_screen_unref(screen);
+}
+END_TEST
+
 START_TEST(test_vte_focus_reporting)
 {
 	struct tsm_screen *screen;
@@ -785,6 +811,7 @@ TEST_DEFINE_CASE(misc)
 	TEST(test_vte_custom_palette)
 	TEST(test_vte_osc_query)
 	TEST(test_vte_osc4)
+	TEST(test_vte_win32_input_mode)
 	TEST(test_vte_focus_reporting)
 	TEST(test_vte_backspace_key)
 	TEST(test_vte_get_flags)
