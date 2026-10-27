@@ -206,6 +206,7 @@ struct tsm_vte {
 	struct tsm_screen_attr cattr;
 	unsigned int flags;
 	bool synchronized_output;
+	unsigned int synchronized_output_generation;
 	bool focus_reporting;
 	bool color_scheme_reporting;
 	bool alternate_scroll;
@@ -743,6 +744,12 @@ unsigned int tsm_vte_get_flags(struct tsm_vte *vte)
 	}
 
 	return vte->flags;
+}
+
+SHL_EXPORT
+unsigned int tsm_vte_get_synchronized_output_generation(struct tsm_vte *vte)
+{
+    return vte ? vte->synchronized_output_generation : 0;
 }
 
 SHL_EXPORT
@@ -1974,6 +1981,7 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 			continue;
 		case 2026: /* DEC synchronized output */
 			vte->synchronized_output = set;
+			if (set) ++vte->synchronized_output_generation;
 			continue;
 		case 9001: /* win32-input-mode: the host wants keys as Win32 key events */
 			vte->win32_input_mode = set;

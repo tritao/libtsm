@@ -618,6 +618,7 @@ TSM_API void tsm_vte_get_def_attr(struct tsm_vte *vte,
 					  struct tsm_screen_attr *out);
 TSM_API unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_synchronized_output(struct tsm_vte *vte);
+TSM_API unsigned int tsm_vte_get_synchronized_output_generation(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_focus_reporting(struct tsm_vte *vte);
 TSM_API bool tsm_vte_get_alternate_scroll(struct tsm_vte *vte);
 /**
