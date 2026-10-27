@@ -207,6 +207,7 @@ struct tsm_vte {
 	unsigned int flags;
 	bool synchronized_output;
 	bool focus_reporting;
+	bool color_scheme_reporting;
 	bool alternate_scroll;
 	bool win32_input_mode;
 	unsigned int keyboard_flags;
@@ -498,10 +499,18 @@ static void to_rgb(struct tsm_vte *vte, struct tsm_screen_attr *attr)
 	}
 }
 
+static void report_color_scheme(struct tsm_vte *vte);
+
 SHL_EXPORT
 void tsm_vte_set_default_colors(struct tsm_vte *vte, uint32_t foreground, uint32_t background)
 {
 	if (!vte) return;
+	bool changed = vte->def_attr.fr != (uint8_t)(foreground >> 16)
+		|| vte->def_attr.fg != (uint8_t)(foreground >> 8)
+		|| vte->def_attr.fb != (uint8_t)foreground
+		|| vte->def_attr.br != (uint8_t)(background >> 16)
+		|| vte->def_attr.bg != (uint8_t)(background >> 8)
+		|| vte->def_attr.bb != (uint8_t)background;
 	const uint32_t colors[] = {foreground, background};
 	for (int i = 0; i < 2; ++i) {
 		vte->host_colors[i][0] = (uint8_t)(colors[i] >> 16);
@@ -513,6 +522,8 @@ void tsm_vte_set_default_colors(struct tsm_vte *vte, uint32_t foreground, uint32
 	to_rgb(vte, &vte->cattr);
 	to_rgb(vte, &vte->saved_state.cattr);
 	tsm_screen_set_def_attr(vte->con, &vte->cattr);
+	if (changed && vte->color_scheme_reporting)
+		report_color_scheme(vte);
 }
 
 static void copy_fcolor(struct tsm_screen_attr *dest,
@@ -884,6 +895,14 @@ static void vte_write_debug(struct tsm_vte *vte, const char *u8, size_t len,
 #define vte_write_raw(_vte, _u8, _len) \
 	vte_write_debug((_vte), (_u8), (_len), true, __FILE__, __LINE__)
 
+static void report_color_scheme(struct tsm_vte *vte)
+{
+	unsigned int brightness = 299u * vte->def_attr.br
+		+ 587u * vte->def_attr.bg + 114u * vte->def_attr.bb;
+	const char *reply = brightness < 128000u ? "\033[?997;1n" : "\033[?997;2n";
+	vte_write(vte, reply, 9);
+}
+
 /* write to console */
 static void write_console(struct tsm_vte *vte, tsm_symbol_t sym)
 {
@@ -992,6 +1011,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->mouse_last_row = 0;
 	vte->synchronized_output = false;
 	vte->focus_reporting = false;
+	vte->color_scheme_reporting = false;
 	vte->alternate_scroll = false;
 	vte->win32_input_mode = false;
 	vte->keyboard_flags = 0;
@@ -1946,6 +1966,9 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 		case 1004: /* focus reporting */
 			vte->focus_reporting = set;
 			continue;
+		case 2031: /* color palette update notifications */
+			vte->color_scheme_reporting = set;
+			continue;
 		case TSM_VTE_ALTERNATE_SCROLL:
 			vte->alternate_scroll = set;
 			continue;
@@ -1983,6 +2006,10 @@ static void csi_dsr(struct tsm_vte *vte)
 {
 	char buf[64];
 	unsigned int x, y, len;
+	if (vte->csi_flags == CSI_WHAT && vte->csi_argc == 1 && vte->csi_argv[0] == 996) {
+		report_color_scheme(vte);
+		return;
+	}
 
 	if (vte->csi_argv[0] == 5) {
 		vte_write(vte, "\033[0n", 4);
@@ -2230,6 +2257,10 @@ static void do_csi(struct tsm_vte *vte, uint32_t data)
 			/* DECSTR: Soft Reset */
 			csi_soft_reset(vte);
 		} else if (vte->csi_flags & CSI_CASH) {
+			if (vte->csi_flags == (CSI_CASH | CSI_WHAT) && vte->csi_argc == 1 && vte->csi_argv[0] == 2031) {
+				const char *reply = vte->color_scheme_reporting ? "\033[?2031;1$y" : "\033[?2031;2$y";
+				vte_write(vte, reply, 11);
+			}
 			/* DECRQM: Request DEC Private Mode */
 			/* If CSI_WHAT is set, then enable,
 			 * otherwise disable */
