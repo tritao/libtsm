@@ -201,6 +201,8 @@ struct tsm_vte {
 	uint8_t (*custom_palette_storage)[3];
 	uint8_t (*palette)[3];
 	struct tsm_screen_attr def_attr;
+	bool host_default_colors;
+	uint8_t host_colors[2][3];
 	struct tsm_screen_attr cattr;
 	unsigned int flags;
 	bool synchronized_output;
@@ -461,6 +463,15 @@ static uint8_t (*get_palette(struct tsm_vte *vte))[3]
  * be called before passing the attribute to the console layer so the console
  * layer can always work with RGB values and does not have to care for color
  * codes. */
+static const uint8_t *default_color(struct tsm_vte *vte, int code)
+{
+	if (vte->host_default_colors && code == TSM_COLOR_FOREGROUND)
+		return vte->host_colors[0];
+	if (vte->host_default_colors && code == TSM_COLOR_BACKGROUND)
+		return vte->host_colors[1];
+	return vte->palette[code];
+}
+
 static void to_rgb(struct tsm_vte *vte, struct tsm_screen_attr *attr)
 {
 	int8_t code;
@@ -473,9 +484,8 @@ static void to_rgb(struct tsm_vte *vte, struct tsm_screen_attr *attr)
 		if (code >= TSM_COLOR_NUM)
 			code = TSM_COLOR_FOREGROUND;
 
-		attr->fr = vte->palette[code][0];
-		attr->fg = vte->palette[code][1];
-		attr->fb = vte->palette[code][2];
+		const uint8_t *rgb = default_color(vte, code);
+		attr->fr = rgb[0]; attr->fg = rgb[1]; attr->fb = rgb[2];
 	}
 
 	code = attr->bccode;
@@ -483,10 +493,26 @@ static void to_rgb(struct tsm_vte *vte, struct tsm_screen_attr *attr)
 		if (code >= TSM_COLOR_NUM)
 			code = TSM_COLOR_BACKGROUND;
 
-		attr->br = vte->palette[code][0];
-		attr->bg = vte->palette[code][1];
-		attr->bb = vte->palette[code][2];
+		const uint8_t *rgb = default_color(vte, code);
+		attr->br = rgb[0]; attr->bg = rgb[1]; attr->bb = rgb[2];
 	}
+}
+
+SHL_EXPORT
+void tsm_vte_set_default_colors(struct tsm_vte *vte, uint32_t foreground, uint32_t background)
+{
+	if (!vte) return;
+	const uint32_t colors[] = {foreground, background};
+	for (int i = 0; i < 2; ++i) {
+		vte->host_colors[i][0] = (uint8_t)(colors[i] >> 16);
+		vte->host_colors[i][1] = (uint8_t)(colors[i] >> 8);
+		vte->host_colors[i][2] = (uint8_t)colors[i];
+	}
+	vte->host_default_colors = true;
+	to_rgb(vte, &vte->def_attr);
+	to_rgb(vte, &vte->cattr);
+	to_rgb(vte, &vte->saved_state.cattr);
+	tsm_screen_set_def_attr(vte->con, &vte->cattr);
 }
 
 static void copy_fcolor(struct tsm_screen_attr *dest,

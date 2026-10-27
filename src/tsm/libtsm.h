@@ -564,6 +564,10 @@ TSM_API void tsm_vte_set_led_cb(struct tsm_vte *vte, tsm_vte_led_cb led_cb,
 TSM_API int tsm_vte_set_palette(struct tsm_vte *vte,
 					const char *palette_name);
 TSM_API const char *tsm_vte_get_palette(struct tsm_vte *vte);
+/* Host default RGB colours (0xRRGGBB), including OSC 10/11 replies. Preserves
+ * screen contents, parser state, SGR attributes and application palette entries. */
+TSM_API void tsm_vte_set_default_colors(struct tsm_vte *vte,
+		uint32_t foreground, uint32_t background);
 
 /**
  * @brief Set a custom palette on the vte object.
