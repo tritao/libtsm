@@ -119,6 +119,7 @@ static tsm_age_t screen_draw(struct tsm_screen *con,
 				cell = &empty;
 
 			memcpy(&attr, &cell->attr, sizeof(attr));
+			attr.selected = false;
 
 			if (con->sel_active) {
 				if (sel_start &&
@@ -146,6 +147,7 @@ static tsm_age_t screen_draw(struct tsm_screen *con,
 
 			if (in_sel || was_sel) {
 				was_sel = false;
+				attr.selected = true;
 				attr.inverse = !attr.inverse;
 			}
 

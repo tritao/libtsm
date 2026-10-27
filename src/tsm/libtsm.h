@@ -185,6 +185,7 @@ struct tsm_screen_attr {
 	unsigned int inverse : 1;	/* inverse colors */
 	unsigned int protect : 1;	/* cannot be erased */
 	unsigned int blink : 1;		/* blinking character */
+	unsigned int selected:1; /* draw-only selection, independent of inverse video */
 	unsigned int dim:1;		/* dim color */
 };
 
@@ -318,6 +319,9 @@ TSM_API void tsm_screen_selection_start(struct tsm_screen *con,
 TSM_API void tsm_screen_selection_target(struct tsm_screen *con,
 				 unsigned int posx,
 				 unsigned int posy);
+/* Start a whole visual line selection. Subsequent targets retain its granularity. */
+TSM_API void tsm_screen_selection_extend(struct tsm_screen *con, unsigned int x, unsigned int y);
+TSM_API void tsm_screen_selection_line(struct tsm_screen *con, unsigned int x, unsigned int y);
 TSM_API void tsm_screen_selection_word(struct tsm_screen *con,
 			       unsigned int posx,
 			       unsigned int posy);

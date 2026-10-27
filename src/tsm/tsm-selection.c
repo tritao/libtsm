@@ -88,40 +88,37 @@ static void selection_set(struct tsm_screen *con, struct selection_pos *sel,
 		--sel->x;
 }
 
-static void word_select(struct tsm_screen *con,
-			unsigned int posx,
-			unsigned int posy)
+static unsigned int selection_class(struct tsm_screen *con, struct line *line, unsigned int x)
 {
-	int start, end;
-	struct line *line;
+ if (x >= line->size) return 0;
+ tsm_symbol_t symbol = line->cells[x].ch;
+ size_t count;
+ const uint32_t *text = tsm_symbol_get(con->sym_table, &symbol, &count);
+ uint32_t ch = text && count ? text[0] : ' ';
+ if (!ch || ch == ' ' || ch == '\t') return 0;
+ return ch >= 128 || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+  (ch >= '0' && ch <= '9') || ch == '_' ? 1 : 2;
+}
 
-	selection_set(con, &con->sel_start, posx, posy);
-
-	line = con->sel_start.line;
-
-	if (!line || line->cells[posx].ch == ' ')
-		return;
-
-	for (start = posx; start >= 0; start--) {
-		if (line->cells[start].ch == ' ') {
-			start++;
-			break;
-		}
-	}
-	if (start < 0)
-		start = 0;
-
-	for (end = posx; end < line->size; end++) {
-		if (line->cells[end].ch == ' ' || line->cells[end].ch == '\n' ||
-		    line->cells[end].ch == '\0') {
-			end--;
-			break;
-		}
-	}
-	con->sel_start.x = start;
-	con->sel_end.x = end;
-	con->sel_end.line = line;
-	con->sel_active = true;
+static void unit_range(struct tsm_screen *con, struct selection_pos point, unsigned int unit,
+ struct selection_pos *first, struct selection_pos *last)
+{
+ *first = *last = point;
+ if (unit == 2) { first->x = 0; last->x = con->size_x - 1; return; }
+ if (unit != 1 || !point.line || point.x >= point.line->size) return;
+ unsigned int kind = selection_class(con, point.line, point.x);
+ while (first->x > 0) {
+  unsigned int x = first->x - 1;
+  while (x > 0 && !point.line->cells[x].width) --x;
+  if (selection_class(con, point.line, x) != kind) break;
+  first->x = x;
+ }
+ unsigned int x = point.x + (point.line->cells[point.x].width ? point.line->cells[point.x].width : 1);
+ while (x < con->size_x && x < point.line->size) {
+  if (selection_class(con, point.line, x) != kind) break;
+  last->x = x;
+  x += point.line->cells[x].width ? point.line->cells[x].width : 1;
+ }
 }
 
 static void age_selection_visible(struct tsm_screen *con,
@@ -145,6 +142,8 @@ void tsm_screen_selection_reset(struct tsm_screen *con)
 	con->sel_active = false;
 	con->sel_start.line = NULL;
 	con->sel_end.line = NULL;
+	con->sel_anchor_start.line = con->sel_anchor_end.line = NULL;
+	con->sel_unit = 0;
 }
 
 /* calculates the line length from the beginning to the last non zero character */
@@ -190,6 +189,7 @@ static int copy_line(struct tsm_screen *con, struct line *line,
 	}
 	if (pos == INT_MAX)
 		return -EOVERFLOW;
+	if (line != last->line && line->soft_wrapped) return pos;
 	if (buf && (size_t)pos < capacity) buf[pos] = '\n';
 	return pos + 1;
 }
@@ -298,6 +298,8 @@ void tsm_screen_selection_start(struct tsm_screen *con,
 	selection_set(con, &con->sel_begin, posx, posy);
 	con->sel_start = con->sel_begin;
 	con->sel_end = con->sel_begin;
+	con->sel_unit = 0;
+	con->sel_anchor_start = con->sel_anchor_end = con->sel_begin;
 	age_selection_visible(con, &con->sel_start, &con->sel_end,
 			      con->age_cnt);
 }
@@ -319,13 +321,14 @@ void tsm_screen_selection_target(struct tsm_screen *con,
 	age_selection_visible(con, &old_start, &old_end, con->age_cnt);
 
 	selection_set(con, &target, posx, posy);
-	if (selection_is_before(con, &con->sel_begin, &target)) {
-		con->sel_start = con->sel_begin;
-		con->sel_end = target;
-	} else {
-		con->sel_start = target;
-		con->sel_end = con->sel_begin;
-	}
+ struct selection_pos first, last;
+ unit_range(con, target, con->sel_unit, &first, &last);
+ if (!con->sel_anchor_start.line || !con->sel_anchor_end.line) return;
+ if (selection_is_before(con, &first, &con->sel_anchor_start)) {
+  con->sel_start = first; con->sel_end = con->sel_anchor_end;
+ } else {
+  con->sel_start = con->sel_anchor_start; con->sel_end = last;
+ }
 	age_selection_visible(con, &con->sel_start, &con->sel_end,
 			      con->age_cnt);
 }
@@ -345,10 +348,31 @@ void tsm_screen_selection_word(struct tsm_screen *con,
 	screen_inc_age(con);
 	age_selection_visible(con, &old_start, &old_end, con->age_cnt);
 
-	word_select(con, posx, posy);
-	if (con->sel_active)
-		age_selection_visible(con, &con->sel_start, &con->sel_end,
-				      con->age_cnt);
+	con->sel_active = true;
+ selection_set(con, &con->sel_begin, posx, posy);
+ con->sel_unit = 1;
+ unit_range(con, con->sel_begin, 1, &con->sel_start, &con->sel_end);
+ con->sel_anchor_start = con->sel_start; con->sel_anchor_end = con->sel_end;
+ age_selection_visible(con, &con->sel_start, &con->sel_end, con->age_cnt);
+}
+
+SHL_EXPORT
+void tsm_screen_selection_extend(struct tsm_screen *con, unsigned int x, unsigned int y)
+{
+ if (!con) return;
+ con->sel_unit = 0;
+ tsm_screen_selection_target(con, x, y);
+}
+
+SHL_EXPORT
+void tsm_screen_selection_line(struct tsm_screen *con, unsigned int x, unsigned int y)
+{
+ if (!con || x >= con->size_x || y >= con->size_y) return;
+ tsm_screen_selection_start(con, x, y);
+ con->sel_unit = 2;
+ unit_range(con, con->sel_begin, 2, &con->sel_start, &con->sel_end);
+ con->sel_anchor_start = con->sel_start; con->sel_anchor_end = con->sel_end;
+ age_selection_visible(con, &con->sel_start, &con->sel_end, con->age_cnt);
 }
 
 /*

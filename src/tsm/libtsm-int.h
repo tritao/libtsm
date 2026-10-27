@@ -93,6 +93,7 @@ struct line {
 	unsigned int size;		/* real width */
 	struct cell *cells;		/* actuall cells */
 	uint64_t id;			/* opaque identity for row observers */
+	bool soft_wrapped;
 	uint64_t sb_id;			/* sb ID, 0 if not in sb */
 	tsm_age_t age;			/* age of the whole line */
 };
@@ -158,6 +159,8 @@ struct tsm_screen {
 
 	/* selection */
 	bool sel_active;
+	unsigned int sel_unit;
+	struct selection_pos sel_anchor_start, sel_anchor_end;
 	struct selection_pos sel_begin;		/* First cell selected */
 	struct selection_pos sel_start;		/* First cell to copy in terminal order */
 	struct selection_pos sel_end;		/* Last cell to copy */

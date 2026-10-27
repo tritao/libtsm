@@ -149,6 +149,7 @@ static int line_new(struct tsm_screen *con, struct line **out,
 	line->list.next = NULL;
 	line->list.prev = NULL;
 	line->id = next_line_id(con);
+	line->soft_wrapped = false;
 	line->sb_id = 0;
 	line->size = width;
 	line->age = con->age_cnt;
@@ -200,6 +201,10 @@ static void clear_selection_on_line(struct tsm_screen *con, struct line *line)
 {
 	if (!con->sel_active)
 		return;
+	if (con->sel_anchor_start.line == line || con->sel_anchor_end.line == line) {
+		tsm_screen_selection_reset(con);
+		return;
+	}
 	if (con->sel_begin.line == line)
 		con->sel_begin.line = NULL;
 	if (con->sel_start.line == line)
@@ -324,6 +329,7 @@ static void screen_scroll_up(struct tsm_screen *con, unsigned int num)
 			link_to_scrollback(con, con->lines[pos]);
 		} else {
 			cache[i] = con->lines[pos];
+			cache[i]->soft_wrapped = false;
 			for (j = 0; j < con->size_x; ++j)
 				screen_cell_init(con, &cache[i]->cells[j]);
 		}
@@ -363,6 +369,7 @@ static void screen_scroll_down(struct tsm_screen *con, unsigned int num)
 
 	for (i = 0; i < num; ++i) {
 		cache[i] = con->lines[con->margin_bottom - i];
+		cache[i]->soft_wrapped = false;
 		for (j = 0; j < con->size_x; ++j)
 			screen_cell_init(con, &cache[i]->cells[j]);
 	}
@@ -474,6 +481,7 @@ static void screen_erase_region(struct tsm_screen *con,
 			to = x_to;
 		else
 			to = con->size_x - 1;
+		if (x_from == 0 && to == con->size_x - 1) line->soft_wrapped = false;
 		for ( ; x_from <= to; ++x_from) {
 			if (protect && line->cells[x_from].attr.protect)
 				continue;
@@ -1200,8 +1208,10 @@ void tsm_screen_write(struct tsm_screen *con, tsm_symbol_t ch,
 		last = con->size_y - 1;
 
 	if (con->cursor_x >= con->size_x) {
-		if (con->flags & TSM_SCREEN_AUTO_WRAP)
+		if (con->flags & TSM_SCREEN_AUTO_WRAP) {
+			con->lines[con->cursor_y]->soft_wrapped = true;
 			move_cursor(con, 0, con->cursor_y + 1);
+		}
 		else
 			move_cursor(con, con->size_x - 1, con->cursor_y);
 	}
@@ -1311,6 +1321,9 @@ void tsm_screen_move_down(struct tsm_screen *con, unsigned int num,
 
 	if (!con || !num)
 		return;
+
+	/* LF/IND explicitly ends a physical row; automatic wrapping uses move_cursor. */
+	if (scroll && con->cursor_y < con->size_y) con->lines[con->cursor_y]->soft_wrapped = false;
 
 	screen_inc_age(con);
 
@@ -1483,6 +1496,7 @@ void tsm_screen_insert_lines(struct tsm_screen *con, unsigned int num)
 
 	for (i = 0; i < num; ++i) {
 		cache[i] = con->lines[con->margin_bottom - i];
+		cache[i]->soft_wrapped = false;
 		for (j = 0; j < con->size_x; ++j)
 			screen_cell_init(con, &cache[i]->cells[j]);
 	}
@@ -1527,6 +1541,7 @@ void tsm_screen_delete_lines(struct tsm_screen *con, unsigned int num)
 
 	for (i = 0; i < num; ++i) {
 		cache[i] = con->lines[con->cursor_y + i];
+		cache[i]->soft_wrapped = false;
 		for (j = 0; j < con->size_x; ++j)
 			screen_cell_init(con, &cache[i]->cells[j]);
 	}
