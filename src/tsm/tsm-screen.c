@@ -448,6 +448,23 @@ static void screen_write_combining(struct tsm_screen *con, tsm_symbol_t ch)
 		cell->ch = tsm_symbol_append(con->sym_table, cell->ch, ch);
 		cell->age = con->age_cnt;
 		line->age = con->age_cnt;
+		/*
+		 * VS16 (U+FE0F) asks for emoji presentation, which takes two
+		 * columns: "➡️" is wide though "➡" is not. Windows' ConPTY widens
+		 * any narrow character it follows, and programs measure it so, so
+		 * the cell grows here too while the cursor still follows it.
+		 * Without this every later cursor move on the row lands one column
+		 * off and leaves stale characters behind.
+		 */
+		if (ch == 0xfe0f && cell->width == 1 && x + 1 == con->cursor_x
+		    && x + 1 < con->size_x) {
+			cell->width = 2;
+			line->cells[x + 1].ch = 0;
+			line->cells[x + 1].width = 0;
+			line->cells[x + 1].age = con->age_cnt;
+			memcpy(&line->cells[x + 1].attr, &cell->attr, sizeof(cell->attr));
+			move_cursor(con, con->cursor_x + 1, con->cursor_y);
+		}
 		return;
 	}
 }
