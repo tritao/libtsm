@@ -213,6 +213,31 @@ static void clear_selection_on_line(struct tsm_screen *con, struct line *line)
 		con->sel_end.line = NULL;
 }
 
+/* A scrollback line keeps only the cells that were written: trailing blank
+ * cells in the default attributes draw exactly like the renderer's empty
+ * cell, so dropping them bounds the scrollback's memory by what was written
+ * rather than by the screen width. remove_from_sb() grows a line back when it
+ * returns to the screen. At least one cell stays. */
+static void line_trim(struct tsm_screen *con, struct line *line)
+{
+	unsigned int size = line->size;
+	struct cell *tmp;
+
+	while (size > 1) {
+		struct cell *cell = &line->cells[size - 1];
+		if ((cell->ch != 0 && cell->ch != ' ') || cell->width != 1 ||
+		    memcmp(&cell->attr, &con->def_attr, sizeof(cell->attr)))
+			break;
+		--size;
+	}
+	if (size == line->size)
+		return;
+	tmp = realloc(line->cells, size * sizeof(struct cell));
+	if (tmp)
+		line->cells = tmp;
+	line->size = size;
+}
+
 /* This links the given line into the scrollback-buffer */
 static void link_to_scrollback(struct tsm_screen *con, struct line *line)
 {
@@ -246,6 +271,7 @@ static void link_to_scrollback(struct tsm_screen *con, struct line *line)
 		line_free(tmp);
 	}
 
+	line_trim(con, line);
 	line->sb_id = ++con->sb.last_id;
 	shl_dlist_link_tail(&con->sb.list, &line->list);
 	++con->sb.count;
